@@ -1,4 +1,5 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -27,6 +28,7 @@ app = FastAPI(
     version=settings.VERSION,
     lifespan=lifespan
 )
+app.add_middleware(GZipMiddleware, minimum_size=500)
 origins = [
         "http://localhost",
         "http://127.0.0.1",

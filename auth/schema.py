@@ -25,3 +25,4 @@ class UserResponse(BaseModel):
     user_id: int
     username: str
 
+

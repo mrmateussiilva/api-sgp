@@ -31,3 +31,4 @@ class UserResponse(SQLModel):
     is_admin: bool
     is_active: bool
     created_at: Optional[datetime] = None
+

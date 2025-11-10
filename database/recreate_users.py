@@ -40,3 +40,4 @@ def recreate_users_table():
 if __name__ == "__main__":
     recreate_users_table()
 
+
