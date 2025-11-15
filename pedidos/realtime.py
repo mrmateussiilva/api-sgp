@@ -1,7 +1,7 @@
 import asyncio
-import json
 from typing import Any, Dict, Set
 
+import orjson
 from fastapi import WebSocket
 
 class OrdersNotifier:
@@ -26,13 +26,16 @@ class OrdersNotifier:
         if not recipients:
             return
 
-        payload = json.dumps(message, default=str)
+        payload = orjson.dumps(message, default=str).decode("utf-8")
         stale_connections: Set[WebSocket] = set()
 
-        for websocket in recipients:
-            try:
-                await websocket.send_text(payload)
-            except Exception:
+        send_tasks = [
+            asyncio.create_task(websocket.send_text(payload))
+            for websocket in recipients
+        ]
+        results = await asyncio.gather(*send_tasks, return_exceptions=True)
+        for websocket, result in zip(recipients, results):
+            if isinstance(result, Exception):
                 stale_connections.add(websocket)
 
         if stale_connections:

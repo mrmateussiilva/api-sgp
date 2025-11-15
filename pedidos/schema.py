@@ -2,7 +2,7 @@ from sqlmodel import SQLModel, Field
 from typing import List, Optional
 from enum import Enum
 from datetime import datetime
-from pydantic import validator, ConfigDict
+from pydantic import ConfigDict, field_validator
 
 class Prioridade(str, Enum):
     NORMAL = "NORMAL"
@@ -80,15 +80,15 @@ class ItemPedido(SQLModel):
 
 
 class PedidoBase(SQLModel):
-    numero: Optional[str] = Field(default=None)
-    data_entrada: str
-    data_entrega: Optional[str] = Field(default=None)
+    numero: Optional[str] = Field(default=None, index=True)
+    data_entrada: str = Field(index=True)
+    data_entrega: Optional[str] = Field(default=None, index=True)
     observacao: Optional[str] = None
     prioridade: Prioridade = Prioridade.NORMAL
-    status: Status = Status.PENDENTE
+    status: Status = Field(default=Status.PENDENTE, index=True)
 
     # Dados do cliente
-    cliente: str
+    cliente: str = Field(index=True)
     telefone_cliente: Optional[str] = None
     cidade_cliente: Optional[str] = None
 
@@ -166,7 +166,7 @@ class Pedido(PedidoBase, table=True):
     data_criacao: Optional[datetime] = Field(default_factory=datetime.utcnow)
     ultima_atualizacao: Optional[datetime] = Field(default_factory=datetime.utcnow)
 
-    @validator('data_criacao', 'ultima_atualizacao', pre=True)
+    @field_validator('data_criacao', 'ultima_atualizacao', mode='before')
     def parse_datetime(cls, v):
         if isinstance(v, str):
             return datetime.fromisoformat(v.replace('Z', '+00:00'))

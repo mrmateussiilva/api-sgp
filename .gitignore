@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# SQLite artifacts
+db/*.db-shm
+db/*.db-wal
+db/*.db-journal

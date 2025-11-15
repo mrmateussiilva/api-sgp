@@ -1,18 +1,28 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
-from sqlalchemy import text
+from sqlalchemy import text, func
 from fastapi.encoders import jsonable_encoder
 from base import get_session
 from database.database import engine
-from .schema import Pedido, PedidoCreate, PedidoUpdate, PedidoResponse, ItemPedido, Acabamento
+from .schema import (
+    Pedido,
+    PedidoCreate,
+    PedidoUpdate,
+    PedidoResponse,
+    ItemPedido,
+    Acabamento,
+    Status,
+)
 from .realtime import schedule_broadcast
 from datetime import datetime
 from typing import Any, List, Optional
-import json
+import orjson
 
 router = APIRouter(prefix="/pedidos", tags=["Pedidos"])
 
 STATE_SEPARATOR = "||"
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 200
 
 
 def ensure_order_columns() -> None:
@@ -36,6 +46,25 @@ def ensure_order_columns() -> None:
 
 
 ensure_order_columns()
+
+
+def ensure_order_indexes() -> None:
+    statements = (
+        "CREATE INDEX IF NOT EXISTS idx_pedidos_status ON pedidos(status)",
+        "CREATE INDEX IF NOT EXISTS idx_pedidos_numero ON pedidos(numero)",
+        "CREATE INDEX IF NOT EXISTS idx_pedidos_data_entrada ON pedidos(data_entrada)",
+        "CREATE INDEX IF NOT EXISTS idx_pedidos_data_entrega ON pedidos(data_entrega)",
+        "CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos(cliente)",
+    )
+    try:
+        with engine.begin() as conn:
+            for ddl in statements:
+                conn.execute(text(ddl))
+    except Exception as exc:
+        print(f"[pedidos] aviso ao garantir indices: {exc}")
+
+
+ensure_order_indexes()
 
 
 def broadcast_order_event(event_type: str, pedido: Optional[PedidoResponse] = None, order_id: Optional[int] = None) -> None:
@@ -75,7 +104,7 @@ def items_to_json_string(items) -> str:
             elif isinstance(acabamento_value, dict):
                 item_dict['acabamento'] = Acabamento(**acabamento_value).model_dump(exclude_none=True)
         items_data.append(item_dict)
-    return json.dumps(items_data, ensure_ascii=False)
+    return orjson.dumps(items_data).decode("utf-8")
 
 def json_string_to_items(items_json: str) -> List[ItemPedido]:
     """Converte string JSON para lista de items"""
@@ -83,14 +112,14 @@ def json_string_to_items(items_json: str) -> List[ItemPedido]:
         return []
     
     try:
-        items_data = json.loads(items_json)
+        items_data = orjson.loads(items_json)
         normalized_items: List[ItemPedido] = []
         for item_data in items_data:
             acabamento = normalize_acabamento(item_data.get('acabamento'))
             payload = {k: v for k, v in item_data.items() if k != 'acabamento'}
             normalized_items.append(ItemPedido(**payload, acabamento=acabamento))
         return normalized_items
-    except (json.JSONDecodeError, Exception) as e:
+    except (orjson.JSONDecodeError, Exception) as e:
         print(f"Erro ao converter JSON para items: {e}")
         return []
 
@@ -187,13 +216,51 @@ def criar_pedido(pedido: PedidoCreate, session: Session = Depends(get_session)):
         session.rollback()
         raise HTTPException(status_code=400, detail=f"Erro ao criar pedido: {str(e)}")
 
+def _validate_iso_date(value: Optional[str], field_name: str) -> Optional[str]:
+    if not value:
+        return None
+    try:
+        datetime.fromisoformat(value)
+        return value
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{field_name} inválida: {value}")
+
+
 @router.get("/", response_model=List[PedidoResponse])
-def listar_pedidos(session: Session = Depends(get_session)):
+def listar_pedidos(
+    session: Session = Depends(get_session),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    status: Optional[Status] = Query(default=None),
+    cliente: Optional[str] = Query(default=None),
+    data_inicio: Optional[str] = Query(default=None),
+    data_fim: Optional[str] = Query(default=None),
+):
     """
     Lista todos os pedidos com seus items convertidos de volta para objetos.
     """
     try:
-        pedidos = session.exec(select(Pedido)).all()
+        filters = select(Pedido)
+        if status:
+            filters = filters.where(Pedido.status == status)
+
+        if cliente:
+            search = f"%{cliente.strip().lower()}%"
+            filters = filters.where(func.lower(Pedido.cliente).like(search))
+
+        data_inicio = _validate_iso_date(data_inicio, "data_inicio")
+        data_fim = _validate_iso_date(data_fim, "data_fim")
+
+        if data_inicio and data_fim and data_inicio > data_fim:
+            raise HTTPException(status_code=400, detail="data_inicio deve ser menor ou igual a data_fim")
+
+        if data_inicio:
+            filters = filters.where(Pedido.data_entrada >= data_inicio)
+        if data_fim:
+            filters = filters.where(Pedido.data_entrada <= data_fim)
+
+        filters = filters.order_by(Pedido.data_criacao.desc()).offset(skip).limit(limit)
+        pedidos = session.exec(filters).all()
         
         # Converter items de JSON string para objetos
         response_pedidos = []
