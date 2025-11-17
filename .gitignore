@@ -13,3 +13,4 @@ wheels/
 db/*.db-shm
 db/*.db-wal
 db/*.db-journal
+db/banco.db
