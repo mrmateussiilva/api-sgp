@@ -153,6 +153,16 @@ Execute o script de teste para verificar se a API está funcionando:
 python test_pedido.py
 ```
 
+## 🧪 Dados de Exemplo
+
+Para popular o banco com pedidos de diferentes status e validar o comportamento do frontend/API, execute:
+
+```bash
+python scripts/seed_pedidos.py --amount 10
+```
+
+Use `--amount` (`-n`) para informar quantos pedidos deseja inserir. O script gera registros distribuídos entre os status (pendente, em produção, pronto, entregue e cancelado) e é idempotente, ou seja, não duplica números já existentes.
+
 ## 📖 Documentação da API
 
 Acesse a documentação interativa da API em:

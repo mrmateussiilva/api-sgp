@@ -2,7 +2,8 @@ from datetime import datetime, timezone
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from auth.models import User
 from base import get_session
@@ -27,22 +28,23 @@ def _to_read_model(user: User) -> UserRead:
 
 
 @router.get("/", response_model=list[UserRead])
-def list_users(session: Session = Depends(get_session)):
-    users = session.exec(select(User)).all()
-    return [_to_read_model(user) for user in users]
+async def list_users(session: AsyncSession = Depends(get_session)):
+    result = await session.exec(select(User))
+    return [_to_read_model(user) for user in result.all()]
 
 
 @router.get("/{user_id}", response_model=UserRead)
-def get_user(user_id: int, session: Session = Depends(get_session)):
-    user = session.get(User, user_id)
+async def get_user(user_id: int, session: AsyncSession = Depends(get_session)):
+    user = await session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
     return _to_read_model(user)
 
 
 @router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def create_user(payload: UserCreate, session: Session = Depends(get_session)):
-    existing = session.exec(select(User).where(User.username == payload.username)).first()
+async def create_user(payload: UserCreate, session: AsyncSession = Depends(get_session)):
+    result = await session.exec(select(User).where(User.username == payload.username))
+    existing = result.first()
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nome de usuário já está em uso")
 
@@ -60,19 +62,20 @@ def create_user(payload: UserCreate, session: Session = Depends(get_session)):
     )
 
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    await session.commit()
+    await session.refresh(user)
     return _to_read_model(user)
 
 
 @router.patch("/{user_id}", response_model=UserRead)
-def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(get_session)):
-    user = session.get(User, user_id)
+async def update_user(user_id: int, payload: UserUpdate, session: AsyncSession = Depends(get_session)):
+    user = await session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
 
     if payload.username and payload.username != user.username:
-        existing = session.exec(select(User).where(User.username == payload.username)).first()
+        result = await session.exec(select(User).where(User.username == payload.username))
+        existing = result.first()
         if existing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nome de usuário já está em uso")
         user.username = payload.username
@@ -91,17 +94,17 @@ def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(ge
     user.updated_at = datetime.now(timezone.utc)
 
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    await session.commit()
+    await session.refresh(user)
     return _to_read_model(user)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: int, session: Session = Depends(get_session)):
-    user = session.get(User, user_id)
+async def delete_user(user_id: int, session: AsyncSession = Depends(get_session)):
+    user = await session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
 
-    session.delete(user)
-    session.commit()
+    await session.delete(user)
+    await session.commit()
     return None

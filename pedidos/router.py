@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import text, func
 from fastapi.encoders import jsonable_encoder
 from base import get_session
@@ -34,7 +35,7 @@ def ensure_order_columns() -> None:
     )
 
     try:
-        with engine.begin() as conn:
+        with engine.sync_engine.begin() as conn:
             columns = conn.execute(text("PRAGMA table_info(pedidos)"))
             columns = columns.fetchall()
             existing = {col[1] for col in columns}
@@ -57,7 +58,7 @@ def ensure_order_indexes() -> None:
         "CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos(cliente)",
     )
     try:
-        with engine.begin() as conn:
+        with engine.sync_engine.begin() as conn:
             for ddl in statements:
                 conn.execute(text(ddl))
     except Exception as exc:
@@ -175,7 +176,7 @@ def decode_city_state(value: Optional[str]) -> tuple[str, Optional[str]]:
     return value.strip(), None
 
 @router.post("/", response_model=PedidoResponse)
-def criar_pedido(pedido: PedidoCreate, session: Session = Depends(get_session)):
+async def criar_pedido(pedido: PedidoCreate, session: AsyncSession = Depends(get_session)):
     """
     Cria um novo pedido com todos os dados fornecidos.
     Aceita o JSON completo com items, dados do cliente, valores, etc.
@@ -199,8 +200,8 @@ def criar_pedido(pedido: PedidoCreate, session: Session = Depends(get_session)):
         )
         
         session.add(db_pedido)
-        session.commit()
-        session.refresh(db_pedido)
+        await session.commit()
+        await session.refresh(db_pedido)
         
         # Converter de volta para response
         pedido_dict = db_pedido.model_dump()
@@ -213,7 +214,7 @@ def criar_pedido(pedido: PedidoCreate, session: Session = Depends(get_session)):
         return response
         
     except Exception as e:
-        session.rollback()
+        await session.rollback()
         raise HTTPException(status_code=400, detail=f"Erro ao criar pedido: {str(e)}")
 
 def _validate_iso_date(value: Optional[str], field_name: str) -> Optional[str]:
@@ -227,8 +228,8 @@ def _validate_iso_date(value: Optional[str], field_name: str) -> Optional[str]:
 
 
 @router.get("/", response_model=List[PedidoResponse])
-def listar_pedidos(
-    session: Session = Depends(get_session),
+async def listar_pedidos(
+    session: AsyncSession = Depends(get_session),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     status: Optional[Status] = Query(default=None),
@@ -260,7 +261,8 @@ def listar_pedidos(
             filters = filters.where(Pedido.data_entrada <= data_fim)
 
         filters = filters.order_by(Pedido.data_criacao.desc()).offset(skip).limit(limit)
-        pedidos = session.exec(filters).all()
+        result = await session.exec(filters)
+        pedidos = result.all()
         
         # Converter items de JSON string para objetos
         response_pedidos = []
@@ -281,12 +283,12 @@ def listar_pedidos(
         raise HTTPException(status_code=500, detail=f"Erro ao listar pedidos: {str(e)}")
 
 @router.get("/{pedido_id}", response_model=PedidoResponse)
-def obter_pedido(pedido_id: int, session: Session = Depends(get_session)):
+async def obter_pedido(pedido_id: int, session: AsyncSession = Depends(get_session)):
     """
     Obtém um pedido específico por ID com seus items convertidos.
     """
     try:
-        pedido = session.get(Pedido, pedido_id)
+        pedido = await session.get(Pedido, pedido_id)
         if not pedido:
             raise HTTPException(status_code=404, detail="Pedido não encontrado")
         
@@ -306,12 +308,12 @@ def obter_pedido(pedido_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=500, detail=f"Erro ao obter pedido: {str(e)}")
 
 @router.patch("/{pedido_id}", response_model=PedidoResponse)
-def atualizar_pedido(pedido_id: int, pedido_update: PedidoUpdate, session: Session = Depends(get_session)):
+async def atualizar_pedido(pedido_id: int, pedido_update: PedidoUpdate, session: AsyncSession = Depends(get_session)):
     """
     Atualiza um pedido existente. Aceita atualizações parciais.
     """
     try:
-        db_pedido = session.get(Pedido, pedido_id)
+        db_pedido = await session.get(Pedido, pedido_id)
         if not db_pedido:
             raise HTTPException(status_code=404, detail="Pedido não encontrado")
         
@@ -348,8 +350,8 @@ def atualizar_pedido(pedido_id: int, pedido_update: PedidoUpdate, session: Sessi
             setattr(db_pedido, field, value)
         
         session.add(db_pedido)
-        session.commit()
-        session.refresh(db_pedido)
+        await session.commit()
+        await session.refresh(db_pedido)
         
         # Converter de volta para response
         items = json_string_to_items(db_pedido.items or "[]")
@@ -368,32 +370,32 @@ def atualizar_pedido(pedido_id: int, pedido_update: PedidoUpdate, session: Sessi
     except HTTPException:
         raise
     except Exception as e:
-        session.rollback()
+        await session.rollback()
         raise HTTPException(status_code=400, detail=f"Erro ao atualizar pedido: {str(e)}")
 
 @router.delete("/{pedido_id}")
-def deletar_pedido(pedido_id: int, session: Session = Depends(get_session)):
+async def deletar_pedido(pedido_id: int, session: AsyncSession = Depends(get_session)):
     """
     Deleta um pedido existente.
     """
     try:
-        db_pedido = session.get(Pedido, pedido_id)
+        db_pedido = await session.get(Pedido, pedido_id)
         if not db_pedido:
             raise HTTPException(status_code=404, detail="Pedido não encontrado")
         
-        session.delete(db_pedido)
-        session.commit()
+        await session.delete(db_pedido)
+        await session.commit()
         broadcast_order_event("order_deleted", order_id=pedido_id)
         return {"message": "Pedido deletado com sucesso"}
         
     except HTTPException:
         raise
     except Exception as e:
-        session.rollback()
+        await session.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao deletar pedido: {str(e)}")
 
 @router.get("/status/{status}", response_model=List[PedidoResponse])
-def listar_pedidos_por_status(status: str, session: Session = Depends(get_session)):
+async def listar_pedidos_por_status(status: str, session: AsyncSession = Depends(get_session)):
     """
     Lista pedidos por status específico.
     """
@@ -404,7 +406,8 @@ def listar_pedidos_por_status(status: str, session: Session = Depends(get_sessio
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Status inválido: {status}")
         
-        pedidos = session.exec(select(Pedido).where(Pedido.status == status_enum)).all()
+        result = await session.exec(select(Pedido).where(Pedido.status == status_enum))
+        pedidos = result.all()
         
         # Converter items de JSON string para objetos
         response_pedidos = []

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from base import get_session
 from .schema import Payments, PaymentsCreate, PaymentsUpdate
@@ -8,37 +9,37 @@ router = APIRouter(prefix="/tipos-pagamentos", tags=["Pagamentos"])
 
 
 @router.get("/", response_model=list[Payments])
-def list_payments(session: Session = Depends(get_session)):
-    payments = session.exec(select(Payments)).all()
-    return payments
+async def list_payments(session: AsyncSession = Depends(get_session)):
+    result = await session.exec(select(Payments))
+    return result.all()
 
 
 @router.get("/ativos", response_model=list[Payments])
-def list_active_payments(session: Session = Depends(get_session)):
-    payments = session.exec(select(Payments).where(Payments.ativo.is_(True))).all()
-    return payments
+async def list_active_payments(session: AsyncSession = Depends(get_session)):
+    result = await session.exec(select(Payments).where(Payments.ativo.is_(True)))
+    return result.all()
 
 
 @router.get("/{payment_id}", response_model=Payments)
-def get_payment(payment_id: int, session: Session = Depends(get_session)):
-    payment = session.get(Payments, payment_id)
+async def get_payment(payment_id: int, session: AsyncSession = Depends(get_session)):
+    payment = await session.get(Payments, payment_id)
     if not payment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de pagamento não encontrado")
     return payment
 
 
 @router.post("/", response_model=Payments, status_code=status.HTTP_201_CREATED)
-def create_payment(payment: PaymentsCreate, session: Session = Depends(get_session)):
+async def create_payment(payment: PaymentsCreate, session: AsyncSession = Depends(get_session)):
     db_payment = Payments(**payment.model_dump())
     session.add(db_payment)
-    session.commit()
-    session.refresh(db_payment)
+    await session.commit()
+    await session.refresh(db_payment)
     return db_payment
 
 
 @router.patch("/{payment_id}", response_model=Payments)
-def update_payment(payment_id: int, payment_update: PaymentsUpdate, session: Session = Depends(get_session)):
-    db_payment = session.get(Payments, payment_id)
+async def update_payment(payment_id: int, payment_update: PaymentsUpdate, session: AsyncSession = Depends(get_session)):
+    db_payment = await session.get(Payments, payment_id)
     if not db_payment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de pagamento não encontrado")
 
@@ -47,17 +48,17 @@ def update_payment(payment_id: int, payment_update: PaymentsUpdate, session: Ses
         setattr(db_payment, field, value)
 
     session.add(db_payment)
-    session.commit()
-    session.refresh(db_payment)
+    await session.commit()
+    await session.refresh(db_payment)
     return db_payment
 
 
 @router.delete("/{payment_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_payment(payment_id: int, session: Session = Depends(get_session)):
-    db_payment = session.get(Payments, payment_id)
+async def delete_payment(payment_id: int, session: AsyncSession = Depends(get_session)):
+    db_payment = await session.get(Payments, payment_id)
     if not db_payment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de pagamento não encontrado")
 
-    session.delete(db_payment)
-    session.commit()
+    await session.delete(db_payment)
+    await session.commit()
     return None

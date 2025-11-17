@@ -22,7 +22,8 @@ from users.router import router as users_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield create_db_and_tables()
+    await create_db_and_tables()
+    yield
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

@@ -5,7 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from auth import schema as auth_schema
 from auth.models import User
@@ -17,7 +18,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored")
 # Configuração JWT
 SECRET_KEY = "your-secret-key-change-in-production-123456789"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 120
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -51,7 +52,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 @router.post("/login")
 async def login(
     request: auth_schema.LoginRequest,
-    db: Session = Depends(get_session)
+    db: AsyncSession = Depends(get_session)
 ):
     """
     Endpoint de login - Modo Produção
@@ -61,7 +62,8 @@ async def login(
     try:
         # Buscar usuário no banco
         statement = select(User).where(User.username == request.username)
-        user = db.exec(statement).first()
+        result = await db.exec(statement)
+        user = result.first()
         
         if not user:
             raise HTTPException(

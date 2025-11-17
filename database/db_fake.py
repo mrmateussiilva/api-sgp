@@ -1,12 +1,12 @@
 from datetime import date
 from typing import List
 
-from pedidos.schema import FichaPedido,Prioridade
+from pedidos.schema import FichaPedido, Prioridade
 from pagamentos.schema import Payments
 from clientes.schema import Cliente
 from envios.schema import Envio
 
- # ajuste conforme seu projeto
+# ajuste conforme seu projeto
 
 # Simulando um banco de dados em memória
 pedidos_fake: List[FichaPedido] = [
@@ -53,7 +53,7 @@ pedidos_fake: List[FichaPedido] = [
 ]
 
 
-clientes: List[Cliente]= [
+clientes: List[Cliente] = [
     Cliente(
         id=0,
         nome="Mateus",
@@ -62,7 +62,7 @@ clientes: List[Cliente]= [
         estado="es",
         telefone="27 995900071"
     ),
-        Cliente(
+    Cliente(
         id=1,
         nome="Breno Polezi",
         cep="29701340",
@@ -74,21 +74,17 @@ clientes: List[Cliente]= [
 
 
 tiposPagamentos: List[Payments] = [
-    Payments(id=1,name="PIX"),
-    Payments(id=2,name="Link Cartão"),
-    Payments(id=3,name="Boleto"),
-    Payments(id=4,name="Dinheiro"),
+    Payments(id=1, name="PIX"),
+    Payments(id=2, name="Link Cartão"),
+    Payments(id=3, name="Boleto"),
+    Payments(id=4, name="Dinheiro"),
 ]
 
 
 Transportadoras: List[Ellipsis] = [
-    Envio(id=1,name="Correios",value=40.00),
-    Envio(id=2,name="Viação Aguia Branca",value=40.00),
-    Envio(id=3,name="Viação Pretti",value=50.00),
-    Envio(id=4,name="Flex",),
-    Envio(id=5,name="Retirada"),
+    Envio(id=1, name="Correios", value=40.00),
+    Envio(id=2, name="Viação Aguia Branca", value=40.00),
+    Envio(id=3, name="Viação Pretti", value=50.00),
+    Envio(id=4, name="Flex",),
+    Envio(id=5, name="Retirada"),
 ]
-
-
-
-
