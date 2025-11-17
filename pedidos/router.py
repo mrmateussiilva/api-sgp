@@ -26,7 +26,7 @@ DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
 
 
-def ensure_order_columns() -> None:
+async def ensure_order_columns() -> None:
     required = (
         ('conferencia', "ALTER TABLE pedidos ADD COLUMN conferencia BOOLEAN DEFAULT 0"),
         ('sublimacao_maquina', "ALTER TABLE pedidos ADD COLUMN sublimacao_maquina TEXT"),
@@ -34,22 +34,21 @@ def ensure_order_columns() -> None:
         ('pronto', "ALTER TABLE pedidos ADD COLUMN pronto BOOLEAN DEFAULT 0"),
     )
 
+    def _apply_columns(sync_conn):
+        columns = sync_conn.execute(text("PRAGMA table_info(pedidos)")).fetchall()
+        existing = {col[1] for col in columns}
+        for name, ddl in required:
+            if name not in existing:
+                sync_conn.execute(text(ddl))
+
     try:
-        with engine.sync_engine.begin() as conn:
-            columns = conn.execute(text("PRAGMA table_info(pedidos)"))
-            columns = columns.fetchall()
-            existing = {col[1] for col in columns}
-            for name, ddl in required:
-                if name not in existing:
-                    conn.execute(text(ddl))
+        async with engine.begin() as conn:
+            await conn.run_sync(_apply_columns)
     except Exception as exc:
         print(f"[pedidos] aviso ao garantir colunas obrigatórias: {exc}")
 
 
-ensure_order_columns()
-
-
-def ensure_order_indexes() -> None:
+async def ensure_order_indexes() -> None:
     statements = (
         "CREATE INDEX IF NOT EXISTS idx_pedidos_status ON pedidos(status)",
         "CREATE INDEX IF NOT EXISTS idx_pedidos_numero ON pedidos(numero)",
@@ -57,15 +56,21 @@ def ensure_order_indexes() -> None:
         "CREATE INDEX IF NOT EXISTS idx_pedidos_data_entrega ON pedidos(data_entrega)",
         "CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos(cliente)",
     )
+
+    def _apply_indexes(sync_conn):
+        for ddl in statements:
+            sync_conn.execute(text(ddl))
+
     try:
-        with engine.sync_engine.begin() as conn:
-            for ddl in statements:
-                conn.execute(text(ddl))
+        async with engine.begin() as conn:
+            await conn.run_sync(_apply_indexes)
     except Exception as exc:
         print(f"[pedidos] aviso ao garantir indices: {exc}")
 
 
-ensure_order_indexes()
+async def ensure_order_schema() -> None:
+    await ensure_order_columns()
+    await ensure_order_indexes()
 
 
 def broadcast_order_event(event_type: str, pedido: Optional[PedidoResponse] = None, order_id: Optional[int] = None) -> None:

@@ -1,6 +1,6 @@
 import bcrypt
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -19,6 +19,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored")
 SECRET_KEY = "your-secret-key-change-in-production-123456789"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
+revoked_tokens: Dict[str, datetime] = {}
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -49,6 +50,24 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
+def _cleanup_revoked_tokens() -> None:
+    """Remove tokens expirados do registro de revogação."""
+    now = datetime.now(timezone.utc)
+    expired = [token for token, exp in revoked_tokens.items() if exp <= now]
+    for token in expired:
+        revoked_tokens.pop(token, None)
+
+
+def _is_token_revoked(token: str) -> bool:
+    _cleanup_revoked_tokens()
+    return token in revoked_tokens
+
+
+def _revoke_token(token: str, exp: datetime) -> None:
+    revoked_tokens[token] = exp
+    _cleanup_revoked_tokens()
+
+
 @router.post("/login")
 async def login(
     request: auth_schema.LoginRequest,
@@ -70,7 +89,13 @@ async def login(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Usuário ou senha inválidos"
             )
-        
+
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Usuário inativo"
+            )
+
         # Verificar senha
         if not verify_password(request.password, user.password_hash):
             raise HTTPException(
@@ -106,29 +131,52 @@ async def login(
 
 
 @router.post("/logout")
-async def logout():
+async def logout(token: str = Depends(oauth2_scheme)):
     """
     Endpoint de logout
     """
-    return {
-        "success": True,
-        "message": "Logout realizado com sucesso"
-    }
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        exp_timestamp = payload.get("exp")
+        if exp_timestamp is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+
+        exp_datetime = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
+        _revoke_token(token, exp_datetime)
+
+        return {
+            "success": True,
+            "message": "Logout realizado com sucesso"
+        }
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido ou expirado")
 
 
 @router.get("/me")
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_session)
+):
     """
     Retorna informações do usuário atual baseado no token
     """
     try:
+        if _is_token_revoked(token):
+            raise HTTPException(status_code=401, detail="Token revogado")
+
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         user_id: int = payload.get("user_id")
         
         if username is None:
             raise HTTPException(status_code=401, detail="Token inválido")
-        
+
+        user = None
+        if user_id:
+            user = await db.get(User, user_id)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="Usuário inativo ou inexistente")
+
         return {
             "user_id": user_id,
             "username": username

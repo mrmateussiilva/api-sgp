@@ -9,7 +9,7 @@ from config import settings
 
 # Routers
 from auth.router import router as auth_router
-from pedidos.router import router as pedidos_router
+from pedidos.router import router as pedidos_router, ensure_order_schema
 from pedidos.realtime import orders_notifier
 from clientes.router import router as clientes_router
 from pagamentos.router import router as pagamentos_router
@@ -23,6 +23,7 @@ from users.router import router as users_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_db_and_tables()
+    await ensure_order_schema()
     yield
 
 app = FastAPI(

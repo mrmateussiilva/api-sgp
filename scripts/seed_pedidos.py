@@ -261,7 +261,8 @@ def build_dataset() -> List[Dict]:
     for offset, data in enumerate(dataset):
         data_entrada = (base_date - timedelta(days=offset)).isoformat()
         data_entrega = (base_date + timedelta(days=7 - offset)).isoformat()
-        cidade_encoded = encode_city_state(data.pop("cidade"), data.pop("estado"))
+        cidade_encoded = encode_city_state(
+            data.pop("cidade"), data.pop("estado"))
         items_json = serialize_items(data.pop("items"))
         pedido = {
             "data_entrada": data_entrada,
@@ -290,12 +291,16 @@ def expand_dataset(target_amount: int) -> List[Pedido]:
             clone["status"] = status
             clone["numero"] = f"SAMPLE-{counter:03d}"
             clone["cliente"] = f"{template['cliente']} #{counter}"
-            entrada_dt = datetime.fromisoformat(template["data_entrada"]) + timedelta(days=counter)
-            entrega_dt = datetime.fromisoformat(template["data_entrega"]) + timedelta(days=counter)
+            entrada_dt = datetime.fromisoformat(
+                template["data_entrada"]) + timedelta(days=counter)
+            entrega_dt = datetime.fromisoformat(
+                template["data_entrega"]) + timedelta(days=counter)
             clone["data_entrada"] = entrada_dt.isoformat()
             clone["data_entrega"] = entrega_dt.isoformat()
-            clone["data_criacao"] = template["data_criacao"] + timedelta(days=counter)
-            clone["ultima_atualizacao"] = template["ultima_atualizacao"] + timedelta(days=counter)
+            clone["data_criacao"] = template["data_criacao"] + \
+                timedelta(days=counter)
+            clone["ultima_atualizacao"] = template["ultima_atualizacao"] + \
+                timedelta(days=counter)
             selected.append(clone)
             counter += 1
 
