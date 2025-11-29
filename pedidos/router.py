@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import text, func
@@ -18,6 +18,12 @@ from .realtime import schedule_broadcast
 from datetime import datetime
 from typing import Any, List, Optional
 import orjson
+from jose import JWTError, jwt
+from auth.models import User
+from auth.router import SECRET_KEY, ALGORITHM
+from fastapi.security import OAuth2PasswordBearer
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored")
 
 router = APIRouter(prefix="/pedidos", tags=["Pedidos"])
 
@@ -74,6 +80,56 @@ async def ensure_order_indexes() -> None:
 async def ensure_order_schema() -> None:
     await ensure_order_columns()
     await ensure_order_indexes()
+
+
+async def get_current_user_admin(
+    token: str = Depends(oauth2_scheme),
+    x_role: Optional[str] = Header(None, alias="X-ROLE"),
+    session: AsyncSession = Depends(get_session)
+) -> bool:
+    """
+    Verifica se o usuário atual é administrador.
+    Primeiro tenta usar o token JWT, depois o header X-ROLE como fallback.
+    """
+    # Fallback temporário: usar header X-ROLE se disponível
+    if x_role and x_role.lower() == "admin":
+        return True
+    
+    try:
+        # Tentar decodificar o token JWT
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        user_id: int = payload.get("user_id")
+        
+        if username is None or user_id is None:
+            return False
+        
+        # Buscar usuário no banco
+        user = await session.get(User, user_id)
+        if not user or not user.is_active:
+            return False
+        
+        return bool(user.is_admin)
+    except JWTError:
+        # Se falhar ao decodificar, retornar False
+        return False
+    except Exception:
+        return False
+
+
+async def require_admin(
+    is_admin: bool = Depends(get_current_user_admin)
+) -> bool:
+    """
+    Dependência que garante que o usuário é administrador.
+    Retorna HTTP 403 se não for admin.
+    """
+    if not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Ação permitida apenas para administradores."
+        )
+    return True
 
 
 def broadcast_order_event(event_type: str, pedido: Optional[PedidoResponse] = None, order_id: Optional[int] = None) -> None:
@@ -320,17 +376,31 @@ async def obter_pedido(pedido_id: int, session: AsyncSession = Depends(get_sessi
         raise HTTPException(status_code=500, detail=f"Erro ao obter pedido: {str(e)}")
 
 @router.patch("/{pedido_id}", response_model=PedidoResponse)
-async def atualizar_pedido(pedido_id: int, pedido_update: PedidoUpdate, session: AsyncSession = Depends(get_session)):
+async def atualizar_pedido(
+    pedido_id: int,
+    pedido_update: PedidoUpdate,
+    session: AsyncSession = Depends(get_session),
+    is_admin: bool = Depends(get_current_user_admin)
+):
     """
     Atualiza um pedido existente. Aceita atualizações parciais.
+    Requer permissão de administrador para alterar campo 'financeiro'.
     """
     try:
         db_pedido = await session.get(Pedido, pedido_id)
         if not db_pedido:
             raise HTTPException(status_code=404, detail="Pedido não encontrado")
         
-        # Preparar dados para atualização
+        # Preparar dados para atualização (exclude_unset=True garante que apenas campos enviados sejam processados)
         update_data = pedido_update.model_dump(exclude_unset=True)
+        
+        # Verificação de permissão: SOMENTE o campo "financeiro" exige admin
+        # Todos os outros campos (expedição, itens, observação, etc.) podem ser editados por qualquer usuário
+        if 'financeiro' in update_data and not is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="Somente administradores podem alterar o status financeiro."
+            )
         
         # Converter items para JSON string se existirem
         if 'items' in update_data and update_data['items'] is not None:
@@ -386,9 +456,14 @@ async def atualizar_pedido(pedido_id: int, pedido_update: PedidoUpdate, session:
         raise HTTPException(status_code=400, detail=f"Erro ao atualizar pedido: {str(e)}")
 
 @router.delete("/{pedido_id}")
-async def deletar_pedido(pedido_id: int, session: AsyncSession = Depends(get_session)):
+async def deletar_pedido(
+    pedido_id: int,
+    session: AsyncSession = Depends(get_session),
+    _admin: bool = Depends(require_admin)
+):
     """
     Deleta um pedido existente.
+    Requer permissão de administrador.
     """
     try:
         db_pedido = await session.get(Pedido, pedido_id)
