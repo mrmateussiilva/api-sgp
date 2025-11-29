@@ -19,6 +19,7 @@ from materiais.router import router as materiais_router
 from designers.router import router as designers_router
 from vendedores.router import router as vendedores_router
 from users.router import router as users_router
+from notificacoes.router import router as notificacoes_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -72,6 +73,7 @@ app.include_router(materiais_router, prefix=settings.API_V1_STR)
 app.include_router(designers_router, prefix=settings.API_V1_STR)
 app.include_router(vendedores_router, prefix=settings.API_V1_STR)
 app.include_router(users_router, prefix=settings.API_V1_STR)
+app.include_router(notificacoes_router, prefix="/api")
 
 @app.get("/")
 async def root():

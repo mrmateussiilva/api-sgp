@@ -21,6 +21,9 @@ import orjson
 
 router = APIRouter(prefix="/pedidos", tags=["Pedidos"])
 
+# Variável global para rastrear o último ID de pedido criado
+ULTIMO_PEDIDO_ID = 0
+
 STATE_SEPARATOR = "||"
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
@@ -186,6 +189,7 @@ async def criar_pedido(pedido: PedidoCreate, session: AsyncSession = Depends(get
     Cria um novo pedido com todos os dados fornecidos.
     Aceita o JSON completo com items, dados do cliente, valores, etc.
     """
+    global ULTIMO_PEDIDO_ID
     try:
         # Converter o pedido para dict e preparar para o banco
         pedido_data = pedido.model_dump(exclude_unset=True)
@@ -207,6 +211,9 @@ async def criar_pedido(pedido: PedidoCreate, session: AsyncSession = Depends(get
         session.add(db_pedido)
         await session.commit()
         await session.refresh(db_pedido)
+        
+        # Incrementar contador global de pedidos
+        ULTIMO_PEDIDO_ID += 1
         
         # Converter de volta para response
         pedido_dict = db_pedido.model_dump()
