@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,23 +34,33 @@ app = FastAPI(
     default_response_class=ORJSONResponse
 )
 app.add_middleware(GZipMiddleware, minimum_size=500)
-origins = [
-        "http://localhost",
-        "http://127.0.0.1",
-        "http://localhost:5173",
-        "http://192.168.0.10:5173",
-        "tauri://localhost",
-        "null"
-    ]
 
+# Middleware para injetar Origin quando ausente (compatibilidade com Tauri 2)
+@app.middleware("http")
+async def ensure_origin_header(request: Request, call_next):
+    """
+    Injeta header Origin quando ausente para compatibilidade com Tauri 2.
+    O plugin HTTP do Tauri 2 não envia Origin automaticamente, mas o FastAPI
+    com allow_credentials=True exige esse header.
+    """
+    headers = request.scope.get("headers", [])
+    has_origin = any(key.lower() == b"origin" for key, _ in headers)
+    
+    if not has_origin:
+        # Adicionar Origin padrão para requisições do Tauri
+        request.scope["headers"].append((b"origin", b"tauri://localhost"))
+    
+    return await call_next(request)
+
+# Configuração CORS compatível com Tauri 2 e requisições LAN
 app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_origin_regex=".*",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_origin_regex=".*",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 """"
 # Configuração do CORS
 app.add_middleware(
