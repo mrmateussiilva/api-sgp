@@ -1,12 +1,13 @@
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import text, func
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse
+from typing import Any
 from base import get_session
 from database.database import engine
 from .schema import (
@@ -441,6 +442,68 @@ async def obter_imagem(imagem_id: int, session: AsyncSession = Depends(get_sessi
         media_type=imagem.mime_type,
         filename=imagem.filename,
     )
+
+@router.post("/save-json/{pedido_id}")
+async def salvar_pedido_json(
+    pedido_id: int,
+    pedido_data: dict[str, Any] = Body(...),
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Salva os dados completos de um pedido em arquivo JSON.
+    O arquivo é salvo em: api-sgp/media/pedidos/{pedido_id}/
+    """
+    try:
+        from pathlib import Path
+        import json
+        from datetime import datetime
+        
+        # Obter caminho do projeto (mesmo padrão usado em images.py)
+        PROJECT_ROOT = Path(__file__).resolve().parent.parent
+        from config import settings
+        _configured_media_root = Path(settings.MEDIA_ROOT)
+        if not _configured_media_root.is_absolute():
+            MEDIA_ROOT = (PROJECT_ROOT / _configured_media_root).resolve()
+        else:
+            MEDIA_ROOT = _configured_media_root.resolve()
+        
+        # Criar diretório para o pedido
+        pedido_dir = MEDIA_ROOT / "pedidos" / str(pedido_id)
+        pedido_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Criar nome do arquivo com timestamp
+        timestamp = datetime.utcnow().isoformat().replace(':', '-').replace('.', '-')
+        filename = f"pedido-{pedido_id}-{timestamp}.json"
+        filepath = pedido_dir / filename
+        
+        # Adicionar metadados
+        json_data = {
+            **pedido_data,
+            "savedAt": datetime.utcnow().isoformat(),
+            "savedBy": "SGP System",
+            "version": "1.0"
+        }
+        
+        # Salvar arquivo JSON
+        with filepath.open('w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+        
+        # Retornar caminho relativo
+        relative_path = filepath.relative_to(MEDIA_ROOT)
+        path_str = str(relative_path).replace("\\", "/")
+        
+        print(f"[UPLOAD] JSON do pedido {pedido_id} salvo em {path_str}")
+        
+        return {
+            "message": "JSON salvo com sucesso",
+            "path": path_str,
+            "filename": filename
+        }
+        
+    except Exception as e:
+        print(f"[ERROR] Erro ao salvar JSON do pedido {pedido_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar JSON: {str(e)}")
+
 
 @router.post("/", response_model=PedidoResponse)
 async def criar_pedido(
