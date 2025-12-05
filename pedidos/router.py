@@ -368,19 +368,79 @@ async def apply_image_changes(
         session.add(image_row)
         await session.flush()
         url = build_api_path(f"/pedidos/imagens/{image_row.id}")
+        print(f"[UPLOAD] URL da imagem construída: {url} para item index {upload.index}")
         if 0 <= upload.index < len(items_payload):
             items_payload[upload.index]['imagem'] = url
+            print(f"[UPLOAD] Caminho da imagem salvo no item: {items_payload[upload.index].get('imagem')}")
         has_changes = True
 
     return has_changes
 
 
+async def get_next_order_number(session: AsyncSession) -> str:
+    """Gera o próximo número incremental de pedido baseado no maior número existente."""
+    try:
+        # Buscar o maior número numérico existente
+        # SQLite: tentar converter para INTEGER e pegar o máximo
+        # Usar uma subquery para filtrar apenas números válidos
+        result = await session.execute(
+            text("""
+                SELECT MAX(CAST(numero AS INTEGER)) 
+                FROM pedidos 
+                WHERE numero IS NOT NULL 
+                AND numero != '' 
+                AND CAST(numero AS INTEGER) > 0
+            """)
+        )
+        max_num = result.scalar()
+        
+        # Se não houver pedidos ou números válidos, começar em 1
+        if max_num is None:
+            next_num = 1
+        else:
+            next_num = int(max_num) + 1
+        
+        # Formatar com zeros à esquerda (10 dígitos, como no Tauri)
+        return str(next_num).zfill(10)
+    except (ValueError, TypeError) as e:
+        # Se houver erro ao converter números (ex: números com formato inválido)
+        # Buscar o maior ID como fallback
+        print(f"[WARNING] Erro ao converter número, usando ID como fallback: {e}")
+        try:
+            result = await session.execute(
+                text("SELECT MAX(id) FROM pedidos")
+            )
+            max_id = result.scalar()
+            next_num = (max_id or 0) + 1
+            return str(next_num).zfill(10)
+        except Exception as fallback_error:
+            print(f"[ERROR] Erro no fallback também: {fallback_error}")
+            # Último recurso: começar do 1
+            return "0000000001"
+    except Exception as e:
+        # Outros erros inesperados
+        print(f"[ERROR] Erro inesperado ao gerar número incremental: {e}")
+        # Buscar o maior ID como fallback
+        try:
+            result = await session.execute(
+                text("SELECT MAX(id) FROM pedidos")
+            )
+            max_id = result.scalar()
+            next_num = (max_id or 0) + 1
+            return str(next_num).zfill(10)
+        except Exception:
+            # Último recurso: começar do 1
+            return "0000000001"
+
+
 def ensure_pedido_defaults(pedido_data: dict) -> dict:
     """Garante campos obrigatórios com valores padrão."""
+    # Nota: numero será gerado assincronamente em criar_pedido
+    # Este método apenas preserva o numero se já existir
     numero = pedido_data.get('numero')
-    if not numero:
-        numero = str(int(datetime.utcnow().timestamp()))
-    pedido_data['numero'] = numero
+    if numero:
+        pedido_data['numero'] = numero
+    # Se não houver numero, será gerado em criar_pedido usando get_next_order_number
 
     data_entrada = pedido_data.get('data_entrada') or datetime.utcnow().date().isoformat()
     pedido_data['data_entrada'] = data_entrada
@@ -484,6 +544,12 @@ async def salvar_pedido_json(
             "version": "1.0"
         }
         
+        # Verificar se há imagens nos items e logar
+        if 'items' in json_data and isinstance(json_data['items'], list):
+            for idx, item in enumerate(json_data['items']):
+                if isinstance(item, dict) and 'imagem' in item:
+                    print(f"[SAVE-JSON] Item {idx} tem imagem: {item.get('imagem')}")
+        
         # Salvar arquivo JSON
         with filepath.open('w', encoding='utf-8') as f:
             json.dump(json_data, f, indent=2, ensure_ascii=False)
@@ -523,6 +589,10 @@ async def criar_pedido(
         items_payload, pending_uploads, _ = prepare_items_for_storage(raw_items)
         # Normalizar campos obrigatórios
         pedido_data = ensure_pedido_defaults(pedido_data)
+        
+        # Gerar número incremental se não foi fornecido
+        if not pedido_data.get('numero'):
+            pedido_data['numero'] = await get_next_order_number(session)
 
         # Converter items para JSON string para armazenar no banco
         items_json = items_to_json_string(items_payload)
@@ -716,7 +786,11 @@ async def atualizar_pedido(
             update_data['forma_envio_id'] = db_pedido.forma_envio_id or 0
 
         if 'numero' in update_data and not update_data['numero']:
-            update_data['numero'] = db_pedido.numero or str(int(datetime.utcnow().timestamp()))
+            # Se o pedido já tem um número, mantê-lo; caso contrário, gerar um novo incremental
+            if db_pedido.numero:
+                update_data['numero'] = db_pedido.numero
+            else:
+                update_data['numero'] = await get_next_order_number(session)
 
         estado_update = (update_data.pop('estado_cliente', None) or '').strip()
         if 'cidade_cliente' in update_data or estado_update:
