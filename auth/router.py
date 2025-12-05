@@ -11,14 +11,15 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from auth import schema as auth_schema
 from auth.models import User
 from database.database import get_session
+from config import settings
 
 router = APIRouter(tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored")
 
 # Configuração JWT
-SECRET_KEY = "your-secret-key-change-in-production-123456789"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 120
+SECRET_KEY = settings.SECRET_KEY.get_secret_value()
+ALGORITHM = settings.JWT_ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 revoked_tokens: Dict[str, datetime] = {}
 
 

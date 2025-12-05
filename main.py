@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +6,8 @@ from fastapi.responses import ORJSONResponse
 
 from base import create_db_and_tables
 from config import settings
+from logging_config import setup_logging
+from auth.security import extract_bearer_token, get_user_from_token
 
 # Routers
 from auth.router import router as auth_router
@@ -21,6 +23,9 @@ from vendedores.router import router as vendedores_router
 from users.router import router as users_router
 from notificacoes.router import router as notificacoes_router
 
+setup_logging()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_db_and_tables()
@@ -35,34 +40,7 @@ app = FastAPI(
 )
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
-# Middleware para injetar Origin quando ausente (compatibilidade com Tauri 2)
-@app.middleware("http")
-async def ensure_origin_header(request: Request, call_next):
-    """
-    Injeta header Origin quando ausente para compatibilidade com Tauri 2.
-    O plugin HTTP do Tauri 2 não envia Origin automaticamente, mas o FastAPI
-    com allow_credentials=True exige esse header.
-    """
-    headers = request.scope.get("headers", [])
-    has_origin = any(key.lower() == b"origin" for key, _ in headers)
-    
-    if not has_origin:
-        # Adicionar Origin padrão para requisições do Tauri
-        request.scope["headers"].append((b"origin", b"tauri://localhost"))
-    
-    return await call_next(request)
-
-# Configuração CORS compatível com Tauri 2 e requisições LAN
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_origin_regex=".*",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-""""
-# Configuração do CORS
+# Configuração CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -71,7 +49,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-"""
 # Inclusão dos routers
 app.include_router(auth_router, prefix="/auth")
 app.include_router(pedidos_router, prefix=settings.API_V1_STR)
@@ -108,6 +85,16 @@ async def health():
 
 @app.websocket("/ws/orders")
 async def orders_websocket(websocket: WebSocket):
+    """Canal websocket protegido por token JWT."""
+    token = websocket.query_params.get("token")
+    if not token:
+        token = extract_bearer_token(websocket.headers.get("Authorization"))
+
+    user = await get_user_from_token(token)
+    if not user:
+        await websocket.close(code=1008)
+        return
+
     await orders_notifier.connect(websocket)
     try:
         while True:
@@ -116,5 +103,3 @@ async def orders_websocket(websocket: WebSocket):
         await orders_notifier.disconnect(websocket)
     except Exception:
         await orders_notifier.disconnect(websocket)
-    
-    

@@ -117,6 +117,10 @@ Deleta um pedido.
 #### GET `/api/v1/pedidos/status/{status}`
 Lista pedidos por status específico.
 
+#### GET `/api/v1/pedidos/imagens/{imagem_id}`
+Retorna o arquivo físico associado a um item de pedido.  
+Envie o campo `imagem` dos itens como `data:image/<tipo>;base64,...` (mesmo formato já aceito) e a API armazenará o arquivo dentro de `MEDIA_ROOT`, retornando apenas uma URL para download quando o pedido for listado.
+
 ## 🗄️ Estrutura do Banco
 
 ### Tabela `pedidos`
@@ -144,6 +148,14 @@ Lista pedidos por status específico.
 - **items**: JSON com os itens do pedido
 - **data_criacao**: Data de criação
 - **ultima_atualizacao**: Data da última atualização
+
+### Tabela `pedido_imagens`
+- **id**: Chave primária
+- **pedido_id**: Referência ao pedido
+- **item_index/item_identificador**: Relação com o item correspondente
+- **filename / mime_type**: Metadados do arquivo original
+- **path**: Caminho relativo dentro de `MEDIA_ROOT`
+- **tamanho / criado_em**: Informações de auditoria
 
 ## 🧪 Testes
 
@@ -174,6 +186,8 @@ Acesse a documentação interativa da API em:
 As configurações podem ser alteradas no arquivo `config.py` ou através de variáveis de ambiente:
 
 - `DATABASE_URL`: URL do banco de dados
+- `MEDIA_ROOT`: Diretório onde as imagens dos pedidos serão persistidas
+- `MAX_IMAGE_SIZE_MB`: Tamanho máximo aceito para upload via base64
 - `API_V1_STR`: Prefixo da API
 - `PROJECT_NAME`: Nome do projeto
 - `VERSION`: Versão da API

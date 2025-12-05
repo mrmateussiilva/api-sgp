@@ -54,9 +54,9 @@ async def test_atualizar_pedido_inexistente(client: AsyncClient, clean_db):
 
 
 @pytest.mark.asyncio
-async def test_deletar_pedido_inexistente(client: AsyncClient, clean_db):
+async def test_deletar_pedido_inexistente(client: AsyncClient, clean_db, admin_headers):
     """Testa erro ao deletar pedido que não existe."""
-    response = await client.delete("/pedidos/99999")
+    response = await client.delete("/pedidos/99999", headers=admin_headers)
     assert response.status_code == 404
 
 
@@ -101,4 +101,3 @@ async def test_pedido_com_valores_padrao(client: AsyncClient, clean_db):
     assert data["valor_frete"] is not None
     assert data["forma_envio_id"] == 0
     assert data["status"] == "pendente"
-

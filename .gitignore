@@ -14,3 +14,6 @@ db/*.db-shm
 db/*.db-wal
 db/*.db-journal
 db/banco.db
+
+# Media uploads
+media/

@@ -8,6 +8,16 @@ from datetime import datetime
 import pedidos.router
 from pedidos.schema import Status, ItemPedido, Acabamento
 
+SAMPLE_IMAGE_DATA = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
+)
+
+SAMPLE_IMAGE_DATA_ALT = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAE0lEQVR42mP8z/C/HwMDAwMjAAAzNQOijvOLLAAAAABJRU5ErkJggg=="
+)
+
 
 @pytest.mark.asyncio
 async def test_criar_pedido_sucesso(client: AsyncClient, clean_db):
@@ -226,7 +236,7 @@ async def test_atualizar_pedido(client: AsyncClient, clean_db):
 
 
 @pytest.mark.asyncio
-async def test_deletar_pedido(client: AsyncClient, clean_db):
+async def test_deletar_pedido(client: AsyncClient, clean_db, admin_headers):
     """Testa deleção de pedido."""
     # Criar pedido
     create_response = await client.post("/pedidos", json={
@@ -237,7 +247,7 @@ async def test_deletar_pedido(client: AsyncClient, clean_db):
     pedido_id = create_response.json()["id"]
     
     # Deletar pedido
-    response = await client.delete(f"/pedidos/{pedido_id}")
+    response = await client.delete(f"/pedidos/{pedido_id}", headers=admin_headers)
     assert response.status_code == 200
     
     # Verificar que foi deletado
@@ -277,3 +287,161 @@ async def test_pedido_com_items_complexos(client: AsyncClient, clean_db):
     assert item["acabamento"]["overloque"] is True
     assert item["acabamento"]["ilhos"] is True
 
+
+@pytest.mark.asyncio
+async def test_nao_deleta_pedido_sem_autenticacao(client: AsyncClient, clean_db):
+    """Garante que rotas protegidas exigem token."""
+    create_response = await client.post("/pedidos", json={
+        "cliente": "Cliente Restrito",
+        "data_entrada": "2024-01-15",
+        "items": []
+    })
+    pedido_id = create_response.json()["id"]
+
+    response = await client.delete(f"/pedidos/{pedido_id}")
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_financeiro_requer_admin(client: AsyncClient, clean_db):
+    """Atualização do campo financeiro deve exigir admin."""
+    create_response = await client.post("/pedidos", json={
+        "cliente": "Cliente Financeiro",
+        "data_entrada": "2024-01-15",
+        "items": []
+    })
+    pedido_id = create_response.json()["id"]
+
+    response = await client.patch(f"/pedidos/{pedido_id}", json={"financeiro": True})
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_financeiro_com_admin(client: AsyncClient, clean_db, admin_headers):
+    """Admins conseguem atualizar o campo financeiro."""
+    create_response = await client.post("/pedidos", json={
+        "cliente": "Cliente Financeiro Admin",
+        "data_entrada": "2024-01-15",
+        "items": []
+    })
+    pedido_id = create_response.json()["id"]
+
+    response = await client.patch(
+        f"/pedidos/{pedido_id}",
+        json={"financeiro": True},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["financeiro"] is True
+
+
+@pytest.mark.asyncio
+async def test_criar_pedido_salva_imagem_e_expoe_download(client: AsyncClient, clean_db, media_root):
+    """Cria pedido com imagem em base64 e verifica URL e arquivo salvo."""
+    pedido_data = {
+        "cliente": "Cliente com imagem",
+        "data_entrada": "2024-01-15",
+        "items": [
+            {
+                "id": "item-1",
+                "descricao": "Banner com arte",
+                "tipo_producao": "banner",
+                "imagem": SAMPLE_IMAGE_DATA,
+            }
+        ]
+    }
+
+    response = await client.post("/pedidos", json=pedido_data)
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["imagem"].startswith("/pedidos/imagens/")
+
+    # arquivo físico precisa existir no diretório temporário
+    files = [p for p in (media_root / "pedidos").rglob("*") if p.is_file()]
+    assert len(files) == 1
+
+    # endpoint de download deve servir o conteúdo binário
+    download = await client.get(item["imagem"])
+    assert download.status_code == 200
+    assert download.headers["content-type"] == "image/png"
+    assert download.content.startswith(b"\x89PNG")
+
+
+@pytest.mark.asyncio
+async def test_atualizar_pedido_substitui_imagem_antiga(client: AsyncClient, clean_db, media_root):
+    """Atualizar item com nova imagem troca o arquivo salvo e remove o antigo."""
+    create_response = await client.post("/pedidos", json={
+        "cliente": "Cliente troca imagem",
+        "data_entrada": "2024-01-15",
+        "items": [
+            {
+                "id": "item-1",
+                "descricao": "Peça com imagem",
+                "tipo_producao": "banner",
+                "imagem": SAMPLE_IMAGE_DATA,
+            }
+        ]
+    })
+    pedido_id = create_response.json()["id"]
+    item = create_response.json()["items"][0]
+    imagem_antiga = item["imagem"]
+
+    update_response = await client.patch(f"/pedidos/{pedido_id}", json={
+        "items": [
+            {
+                "id": "item-1",
+                "descricao": "Peça com imagem",
+                "tipo_producao": "banner",
+                "imagem": SAMPLE_IMAGE_DATA_ALT,
+            }
+        ]
+    })
+    assert update_response.status_code == 200
+    nova_imagem = update_response.json()["items"][0]["imagem"]
+    assert nova_imagem != imagem_antiga
+
+    antigo = await client.get(imagem_antiga)
+    assert antigo.status_code == 404
+    novo = await client.get(nova_imagem)
+    assert novo.status_code == 200
+
+    files = [p for p in (media_root / "pedidos").rglob("*") if p.is_file()]
+    assert len(files) == 1
+
+
+@pytest.mark.asyncio
+async def test_atualizar_pedido_remove_imagem_quando_nula(client: AsyncClient, clean_db, media_root):
+    """Enviar imagem nula remove arquivo registrado e atualiza item."""
+    create_response = await client.post("/pedidos", json={
+        "cliente": "Cliente remove imagem",
+        "data_entrada": "2024-01-15",
+        "items": [
+            {
+                "id": "item-1",
+                "descricao": "Peça com imagem",
+                "tipo_producao": "banner",
+                "imagem": SAMPLE_IMAGE_DATA,
+            }
+        ]
+    })
+    pedido_id = create_response.json()["id"]
+    imagem_antiga = create_response.json()["items"][0]["imagem"]
+
+    update_response = await client.patch(f"/pedidos/{pedido_id}", json={
+        "items": [
+            {
+                "id": "item-1",
+                "descricao": "Peça com imagem",
+                "tipo_producao": "banner",
+                "imagem": None,
+            }
+        ]
+    })
+    assert update_response.status_code == 200
+    assert update_response.json()["items"][0]["imagem"] is None
+
+    antigo = await client.get(imagem_antiga)
+    assert antigo.status_code == 404
+
+    files = [p for p in (media_root / "pedidos").rglob("*") if p.is_file()]
+    assert len(files) == 0

@@ -173,6 +173,20 @@ class Pedido(PedidoBase, table=True):
         return v
 
 
+class PedidoImagem(SQLModel, table=True):
+    __tablename__ = "pedido_imagens"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    pedido_id: int = Field(foreign_key="pedidos.id", index=True)
+    item_index: Optional[int] = Field(default=None, index=True)
+    item_identificador: Optional[str] = Field(default=None, index=True)
+    filename: str
+    mime_type: str
+    path: str
+    tamanho: int = 0
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
 class PedidoResponse(PedidoBase):
     id: int
     items: List[ItemPedido]

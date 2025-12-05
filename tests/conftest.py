@@ -11,6 +11,8 @@ from fastapi import FastAPI
 
 from main import app
 from database.database import get_session
+from auth.models import User
+from auth.router import get_password_hash
 
 
 # URL do banco de dados em memória para testes
@@ -124,3 +126,48 @@ async def clean_db(test_session):
     
     yield test_session
 
+
+@pytest_asyncio.fixture()
+async def admin_token(test_session):
+    """Cria um usuário administrador e retorna um token JWT."""
+    admin = User(
+        username="admin_test",
+        password_hash=get_password_hash("StrongP@ss1"),
+        is_admin=True,
+        is_active=True,
+    )
+    test_session.add(admin)
+    await test_session.commit()
+    await test_session.refresh(admin)
+
+    from datetime import timedelta
+    from auth.router import create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
+
+    token = create_access_token(
+        data={"sub": admin.username, "user_id": admin.id},
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return token
+
+
+@pytest_asyncio.fixture()
+async def admin_headers(admin_token: str):
+    """Retorna headers Authorization para requests autenticadas como admin."""
+    return {"Authorization": f"Bearer {admin_token}"}
+
+
+@pytest.fixture(scope="function")
+def media_root(tmp_path):
+    """
+    Redireciona o diretório de mídia para um caminho temporário.
+    Evita que testes gravem arquivos dentro do repositório.
+    """
+    from pedidos import images
+
+    root = tmp_path / "media-test"
+    pedidos_dir = root / "pedidos"
+    pedidos_dir.mkdir(parents=True, exist_ok=True)
+
+    images.MEDIA_ROOT = root
+    images.PEDIDOS_MEDIA_ROOT = pedidos_dir
+    return root
