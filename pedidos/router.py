@@ -773,6 +773,39 @@ async def deletar_pedido(
         await session.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao deletar pedido: {str(e)}")
 
+@router.delete("/all")
+async def deletar_todos_pedidos(
+    session: AsyncSession = Depends(get_session),
+    _admin: bool = Depends(require_admin)
+):
+    """
+    Deleta todos os pedidos e suas imagens.
+    Requer permissão de administrador.
+    """
+    try:
+        # Buscar todos os pedidos para deletar suas imagens
+        result = await session.exec(select(Pedido))
+        all_pedidos = result.all()
+        
+        # Deletar imagens de todos os pedidos
+        for pedido in all_pedidos:
+            images_result = await session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido.id))
+            for image in images_result.all():
+                delete_media_file(image.path)
+                await session.delete(image)
+        
+        # Deletar todos os pedidos (os itens serão deletados em cascata)
+        for pedido in all_pedidos:
+            await session.delete(pedido)
+        
+        await session.commit()
+        broadcast_order_event("order_deleted", order_id=None)
+        return {"message": "Todos os pedidos foram deletados com sucesso"}
+        
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao deletar todos os pedidos: {str(e)}")
+
 @router.get("/status/{status}", response_model=List[PedidoResponse])
 async def listar_pedidos_por_status(status: str, session: AsyncSession = Depends(get_session)):
     """
