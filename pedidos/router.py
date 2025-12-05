@@ -175,17 +175,21 @@ def broadcast_order_event(event_type: str, pedido: Optional[PedidoResponse] = No
             pedido_dict["user_id"] = user_info.get("user_id")
             pedido_dict["username"] = user_info.get("username")
         message["order"] = pedido_dict
+        # Garantir que order_id está na mensagem também
+        if pedido_dict.get("id"):
+            message["order_id"] = pedido_dict["id"]
     if order_id is not None:
         message["order_id"] = order_id
     # Adicionar informações do usuário na mensagem também
     if user_info:
         message["user_id"] = user_info.get("user_id")
         message["username"] = user_info.get("username")
-        if __debug__:
-            print(f"[Broadcast] Enviando {event_type} com user_id={user_info.get('user_id')}, username={user_info.get('username')}")
-    else:
-        if __debug__:
-            print(f"[Broadcast] Enviando {event_type} SEM user_info (token não disponível ou inválido)")
+    
+    # Log detalhado para debug
+    if __debug__:
+        print(f"[Broadcast] Preparando broadcast: type={event_type}, order_id={message.get('order_id')}, user_id={message.get('user_id')}, username={message.get('username')}")
+        print(f"[Broadcast] Mensagem completa: {message}")
+    
     schedule_broadcast(message)
 
 
