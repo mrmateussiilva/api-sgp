@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from dataclasses import dataclass
+from typing import Any, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import text, func
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse
 from base import get_session
 from database.database import engine
 from .schema import (
@@ -13,17 +17,25 @@ from .schema import (
     ItemPedido,
     Acabamento,
     Status,
+    PedidoImagem,
 )
 from .realtime import schedule_broadcast
 from datetime import datetime
-from typing import Any, List, Optional
 import orjson
-from jose import JWTError, jwt
+from auth.security import decode_access_token
 from auth.models import User
-from auth.router import SECRET_KEY, ALGORITHM
 from fastapi.security import OAuth2PasswordBearer
+from config import settings
+from .images import (
+    decode_base64_image,
+    delete_media_file,
+    is_data_url,
+    store_image_bytes,
+    absolute_media_path,
+    ImageDecodingError,
+)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored", auto_error=False)
 
 router = APIRouter(prefix="/pedidos", tags=["Pedidos"])
 
@@ -33,6 +45,19 @@ ULTIMO_PEDIDO_ID = 0
 STATE_SEPARATOR = "||"
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
+
+
+@dataclass
+class PendingImageUpload:
+    index: int
+    identifier: Optional[str]
+    data_url: str
+
+
+@dataclass
+class PendingImageRemoval:
+    index: int
+    identifier: Optional[str]
 
 
 async def ensure_order_columns() -> None:
@@ -83,38 +108,29 @@ async def ensure_order_schema() -> None:
 
 
 async def get_current_user_admin(
-    token: str = Depends(oauth2_scheme),
-    x_role: Optional[str] = Header(None, alias="X-ROLE"),
+    token: Optional[str] = Depends(oauth2_scheme),
     session: AsyncSession = Depends(get_session)
 ) -> bool:
     """
-    Verifica se o usuário atual é administrador.
-    Primeiro tenta usar o token JWT, depois o header X-ROLE como fallback.
+    Verifica se o usuário atual é administrador a partir do token JWT.
+    Tokens ausentes ou inválidos retornam False.
     """
-    # Fallback temporário: usar header X-ROLE se disponível
-    if x_role and x_role.lower() == "admin":
-        return True
-    
-    try:
-        # Tentar decodificar o token JWT
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        user_id: int = payload.get("user_id")
-        
-        if username is None or user_id is None:
-            return False
-        
-        # Buscar usuário no banco
-        user = await session.get(User, user_id)
-        if not user or not user.is_active:
-            return False
-        
-        return bool(user.is_admin)
-    except JWTError:
-        # Se falhar ao decodificar, retornar False
+    if not token:
         return False
-    except Exception:
+
+    payload = decode_access_token(token)
+    if not payload:
         return False
+
+    user_id: Optional[int] = payload.get("user_id")
+    if not user_id:
+        return False
+
+    user = await session.get(User, user_id)
+    if not user or not user.is_active:
+        return False
+
+    return bool(user.is_admin)
 
 
 async def require_admin(
@@ -132,13 +148,56 @@ async def require_admin(
     return True
 
 
-def broadcast_order_event(event_type: str, pedido: Optional[PedidoResponse] = None, order_id: Optional[int] = None) -> None:
+async def get_current_user_from_token(token: Optional[str], session: AsyncSession) -> Optional[dict[str, Any]]:
+    """Extrai informações do usuário atual do token JWT"""
+    if not token:
+        return None
+    payload = decode_access_token(token)
+    if not payload:
+        return None
+    user_id = payload.get("user_id")
+    username = payload.get("sub")
+    if not user_id:
+        return None
+    # Buscar usuário no banco para obter username completo
+    user = await session.get(User, user_id)
+    if user:
+        return {"user_id": user.id, "username": user.username}
+    return {"user_id": user_id, "username": username or f"User {user_id}"}
+
+
+def broadcast_order_event(event_type: str, pedido: Optional[PedidoResponse] = None, order_id: Optional[int] = None, user_info: Optional[dict[str, Any]] = None) -> None:
     message: dict[str, Any] = {"type": event_type}
     if pedido is not None:
-        message["order"] = jsonable_encoder(pedido)
+        pedido_dict = jsonable_encoder(pedido)
+        # Adicionar informações do usuário ao pedido se disponível
+        if user_info:
+            pedido_dict["user_id"] = user_info.get("user_id")
+            pedido_dict["username"] = user_info.get("username")
+        message["order"] = pedido_dict
     if order_id is not None:
         message["order_id"] = order_id
+    # Adicionar informações do usuário na mensagem também
+    if user_info:
+        message["user_id"] = user_info.get("user_id")
+        message["username"] = user_info.get("username")
+        if __debug__:
+            print(f"[Broadcast] Enviando {event_type} com user_id={user_info.get('user_id')}, username={user_info.get('username')}")
+    else:
+        if __debug__:
+            print(f"[Broadcast] Enviando {event_type} SEM user_info (token não disponível ou inválido)")
     schedule_broadcast(message)
+
+
+def build_api_path(path: str) -> str:
+    normalized = path if path.startswith("/") else f"/{path}"
+    prefix = (settings.API_V1_STR or "").strip()
+    if not prefix:
+        return normalized
+    if not prefix.startswith("/"):
+        prefix = f"/{prefix}"
+    return f"{prefix.rstrip('/')}{normalized}"
+
 
 def normalize_acabamento(acabamento_value: Any) -> Optional[Acabamento]:
     if isinstance(acabamento_value, Acabamento):
@@ -148,27 +207,29 @@ def normalize_acabamento(acabamento_value: Any) -> Optional[Acabamento]:
     return None
 
 
+def item_to_plain_dict(item: Any) -> dict[str, Any]:
+    if hasattr(item, 'model_dump'):
+        item_dict = item.model_dump(exclude_none=True, exclude_unset=True)
+        acabamento = getattr(item, 'acabamento', None)
+        if acabamento:
+            normalized = normalize_acabamento(acabamento)
+            if normalized:
+                item_dict['acabamento'] = normalized.model_dump(exclude_none=True)
+    elif isinstance(item, dict):
+        item_dict = item.copy()
+        acabamento_value = item_dict.get('acabamento')
+        if hasattr(acabamento_value, 'model_dump'):
+            item_dict['acabamento'] = acabamento_value.model_dump(exclude_none=True)
+        elif isinstance(acabamento_value, dict):
+            item_dict['acabamento'] = Acabamento(**acabamento_value).model_dump(exclude_none=True)
+    else:
+        item_dict = getattr(item, '__dict__', {}).copy()
+    return item_dict
+
+
 def items_to_json_string(items) -> str:
     """Converte lista de items para string JSON"""
-    items_data = []
-    for item in items:
-        if hasattr(item, 'model_dump'):
-            # Se for um objeto SQLModel
-            item_dict = item.model_dump(exclude_none=True, exclude_unset=True)
-            # Converter acabamento para dict
-            acabamento = getattr(item, 'acabamento', None)
-            if acabamento:
-                item_dict['acabamento'] = normalize_acabamento(acabamento).model_dump(exclude_none=True)
-        else:
-            # Se já for um dict
-            item_dict = item.copy()
-            # Converter acabamento para dict se existir
-            acabamento_value = item_dict.get('acabamento')
-            if hasattr(acabamento_value, 'model_dump'):
-                item_dict['acabamento'] = acabamento_value.model_dump(exclude_none=True)
-            elif isinstance(acabamento_value, dict):
-                item_dict['acabamento'] = Acabamento(**acabamento_value).model_dump(exclude_none=True)
-        items_data.append(item_dict)
+    items_data = [item_to_plain_dict(item) for item in items]
     return orjson.dumps(items_data).decode("utf-8")
 
 def json_string_to_items(items_json: str) -> List[ItemPedido]:
@@ -187,6 +248,126 @@ def json_string_to_items(items_json: str) -> List[ItemPedido]:
     except (orjson.JSONDecodeError, Exception) as e:
         print(f"Erro ao converter JSON para items: {e}")
         return []
+
+
+def resolve_item_identifier(item_dict: dict[str, Any]) -> Optional[str]:
+    identifier = item_dict.get('id')
+    if identifier is None:
+        return None
+    return str(identifier)
+
+
+def prepare_items_for_storage(
+    items_payload,
+    allow_removal: bool = False
+) -> tuple[list[dict[str, Any]], list[PendingImageUpload], list[PendingImageRemoval]]:
+    normalized_items: list[dict[str, Any]] = []
+    pending_uploads: list[PendingImageUpload] = []
+    pending_removals: list[PendingImageRemoval] = []
+
+    for index, item in enumerate(items_payload):
+        item_dict = item_to_plain_dict(item)
+        identifier = resolve_item_identifier(item_dict)
+        if 'imagem' in item_dict:
+            image_value = item_dict.get('imagem')
+            if isinstance(image_value, str) and is_data_url(image_value):
+                pending_uploads.append(PendingImageUpload(index, identifier, image_value))
+                item_dict['imagem'] = None
+            elif (
+                allow_removal
+                and identifier
+                and (image_value is None or (isinstance(image_value, str) and not image_value.strip()))
+            ):
+                pending_removals.append(PendingImageRemoval(index, identifier))
+                item_dict['imagem'] = None
+        normalized_items.append(item_dict)
+    return normalized_items, pending_uploads, pending_removals
+
+
+def _matches_image_record(image: PedidoImagem, identifier: Optional[str], index: int) -> bool:
+    if identifier and image.item_identificador:
+        return image.item_identificador == identifier
+    return image.item_index == index
+
+
+async def apply_image_changes(
+    session: AsyncSession,
+    pedido_id: int,
+    uploads: List[PendingImageUpload],
+    removals: List[PendingImageRemoval],
+    items_payload: List[dict[str, Any]],
+) -> bool:
+    if not uploads and not removals:
+        return False
+
+    result = await session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido_id))
+    existing_images = result.all()
+
+    identifier_to_index = {}
+    for index, item in enumerate(items_payload):
+        identifier = resolve_item_identifier(item)
+        if identifier:
+            identifier_to_index[identifier] = index
+
+    for image in existing_images:
+        if image.item_identificador and image.item_identificador in identifier_to_index:
+            new_index = identifier_to_index[image.item_identificador]
+            if image.item_index != new_index:
+                image.item_index = new_index
+                session.add(image)
+
+    async def _remove_image(record: PedidoImagem) -> None:
+        delete_media_file(record.path)
+        await session.delete(record)
+
+    def _pop_matching(identifier: Optional[str], index: int) -> Optional[PedidoImagem]:
+        for existing in list(existing_images):
+            if _matches_image_record(existing, identifier, index):
+                existing_images.remove(existing)
+                return existing
+        return None
+
+    has_changes = False
+
+    for removal in removals:
+        record = _pop_matching(removal.identifier, removal.index)
+        if record:
+            await _remove_image(record)
+            has_changes = True
+            if 0 <= removal.index < len(items_payload):
+                items_payload[removal.index]['imagem'] = None
+
+    for upload in uploads:
+        record = _pop_matching(upload.identifier, upload.index)
+        if record:
+            await _remove_image(record)
+        try:
+            binary_data, mime_type = decode_base64_image(upload.data_url)
+        except ImageDecodingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        relative_path, filename, size = store_image_bytes(
+            pedido_id,
+            binary_data,
+            mime_type,
+        )
+        image_row = PedidoImagem(
+            pedido_id=pedido_id,
+            item_index=upload.index,
+            item_identificador=upload.identifier,
+            filename=filename,
+            mime_type=mime_type,
+            path=relative_path,
+            tamanho=size,
+        )
+        session.add(image_row)
+        await session.flush()
+        url = build_api_path(f"/pedidos/imagens/{image_row.id}")
+        if 0 <= upload.index < len(items_payload):
+            items_payload[upload.index]['imagem'] = url
+        has_changes = True
+
+    return has_changes
 
 
 def ensure_pedido_defaults(pedido_data: dict) -> dict:
@@ -239,8 +420,30 @@ def decode_city_state(value: Optional[str]) -> tuple[str, Optional[str]]:
         return cidade, estado
     return value.strip(), None
 
+
+@router.get("/imagens/{imagem_id}")
+async def obter_imagem(imagem_id: int, session: AsyncSession = Depends(get_session)):
+    imagem = await session.get(PedidoImagem, imagem_id)
+    if not imagem:
+        raise HTTPException(status_code=404, detail="Imagem não encontrada")
+    try:
+        absolute_path = absolute_media_path(imagem.path)
+    except ImageDecodingError:
+        raise HTTPException(status_code=404, detail="Imagem não encontrada")
+    if not absolute_path.exists():
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    return FileResponse(
+        absolute_path,
+        media_type=imagem.mime_type,
+        filename=imagem.filename,
+    )
+
 @router.post("/", response_model=PedidoResponse)
-async def criar_pedido(pedido: PedidoCreate, session: AsyncSession = Depends(get_session)):
+async def criar_pedido(
+    pedido: PedidoCreate,
+    session: AsyncSession = Depends(get_session),
+    token: Optional[str] = Depends(oauth2_scheme)
+):
     """
     Cria um novo pedido com todos os dados fornecidos.
     Aceita o JSON completo com items, dados do cliente, valores, etc.
@@ -249,12 +452,13 @@ async def criar_pedido(pedido: PedidoCreate, session: AsyncSession = Depends(get
     try:
         # Converter o pedido para dict e preparar para o banco
         pedido_data = pedido.model_dump(exclude_unset=True)
-        items = pedido_data.pop('items', [])
+        raw_items = pedido_data.pop('items', [])
+        items_payload, pending_uploads, _ = prepare_items_for_storage(raw_items)
         # Normalizar campos obrigatórios
         pedido_data = ensure_pedido_defaults(pedido_data)
 
         # Converter items para JSON string para armazenar no banco
-        items_json = items_to_json_string(items)
+        items_json = items_to_json_string(items_payload)
         
         # Criar o pedido no banco
         db_pedido = Pedido(
@@ -265,6 +469,11 @@ async def criar_pedido(pedido: PedidoCreate, session: AsyncSession = Depends(get
         )
         
         session.add(db_pedido)
+        await session.flush()
+
+        if await apply_image_changes(session, db_pedido.id, pending_uploads, [], items_payload):
+            db_pedido.items = items_to_json_string(items_payload)
+
         await session.commit()
         await session.refresh(db_pedido)
         
@@ -278,9 +487,16 @@ async def criar_pedido(pedido: PedidoCreate, session: AsyncSession = Depends(get
         pedido_dict['estado_cliente'] = estado
         pedido_dict['items'] = json_string_to_items(db_pedido.items or "[]")
         response = PedidoResponse(**pedido_dict)
-        broadcast_order_event("order_created", response)
+        
+        # Obter informações do usuário atual para incluir no broadcast
+        user_info = await get_current_user_from_token(token, session)
+        broadcast_order_event("order_created", response, None, user_info)
+        
         return response
         
+    except HTTPException:
+        await session.rollback()
+        raise
     except Exception as e:
         await session.rollback()
         raise HTTPException(status_code=400, detail=f"Erro ao criar pedido: {str(e)}")
@@ -380,7 +596,8 @@ async def atualizar_pedido(
     pedido_id: int,
     pedido_update: PedidoUpdate,
     session: AsyncSession = Depends(get_session),
-    is_admin: bool = Depends(get_current_user_admin)
+    is_admin: bool = Depends(get_current_user_admin),
+    token: Optional[str] = Depends(oauth2_scheme)
 ):
     """
     Atualiza um pedido existente. Aceita atualizações parciais.
@@ -390,6 +607,17 @@ async def atualizar_pedido(
         db_pedido = await session.get(Pedido, pedido_id)
         if not db_pedido:
             raise HTTPException(status_code=404, detail="Pedido não encontrado")
+        
+        # 🔥 CAPTURAR VALORES ANTES DA ATUALIZAÇÃO para detectar mudanças reais
+        status_fields_before = {
+            "status": db_pedido.status,
+            "financeiro": db_pedido.financeiro,
+            "conferencia": db_pedido.conferencia,
+            "sublimacao": db_pedido.sublimacao,
+            "costura": db_pedido.costura,
+            "expedicao": db_pedido.expedicao,
+            "pronto": getattr(db_pedido, 'pronto', False),
+        }
         
         # Preparar dados para atualização (exclude_unset=True garante que apenas campos enviados sejam processados)
         update_data = pedido_update.model_dump(exclude_unset=True)
@@ -403,8 +631,15 @@ async def atualizar_pedido(
             )
         
         # Converter items para JSON string se existirem
+        items_payload_for_images: Optional[List[dict[str, Any]]] = None
+        pending_uploads: List[PendingImageUpload] = []
+        pending_removals: List[PendingImageRemoval] = []
         if 'items' in update_data and update_data['items'] is not None:
-            update_data['items'] = items_to_json_string(update_data['items'])
+            items_payload_for_images, pending_uploads, pending_removals = prepare_items_for_storage(
+                update_data['items'],
+                allow_removal=True
+            )
+            update_data['items'] = items_to_json_string(items_payload_for_images)
         
         if 'data_entrega' in update_data and not update_data['data_entrega']:
             # Garantir que data_entrega nunca fique vazia devido à restrição do banco
@@ -432,8 +667,44 @@ async def atualizar_pedido(
             setattr(db_pedido, field, value)
         
         session.add(db_pedido)
+        if items_payload_for_images is not None:
+            if await apply_image_changes(
+                session,
+                db_pedido.id,
+                pending_uploads,
+                pending_removals,
+                items_payload_for_images
+            ):
+                db_pedido.items = items_to_json_string(items_payload_for_images)
+
         await session.commit()
         await session.refresh(db_pedido)
+        
+        # 🔥 CAPTURAR VALORES DEPOIS DA ATUALIZAÇÃO
+        status_fields_after = {
+            "status": db_pedido.status,
+            "financeiro": db_pedido.financeiro,
+            "conferencia": db_pedido.conferencia,
+            "sublimacao": db_pedido.sublimacao,
+            "costura": db_pedido.costura,
+            "expedicao": db_pedido.expedicao,
+            "pronto": getattr(db_pedido, 'pronto', False),
+        }
+        
+        # 🔥 DETECTAR MUDANÇAS REAIS DE STATUS (comparar antes vs depois)
+        status_changed = any(
+            status_fields_before.get(key) != status_fields_after.get(key)
+            for key in status_fields_before.keys()
+        )
+        
+        if __debug__ and status_changed:
+            changed_fields = [
+                key for key in status_fields_before.keys()
+                if status_fields_before.get(key) != status_fields_after.get(key)
+            ]
+            print(f"[Pedidos] Mudança de status detectada no pedido {pedido_id}: {changed_fields}")
+            print(f"[Pedidos] Antes: {status_fields_before}")
+            print(f"[Pedidos] Depois: {status_fields_after}")
         
         # Converter de volta para response
         items = json_string_to_items(db_pedido.items or "[]")
@@ -444,9 +715,21 @@ async def atualizar_pedido(
         pedido_dict['estado_cliente'] = estado
         pedido_dict['items'] = items
         response = PedidoResponse(**pedido_dict)
-        broadcast_order_event("order_updated", response)
-        if any(key in update_data for key in ["financeiro", "conferencia", "sublimacao", "costura", "expedicao", "pronto", "status"]):
-            broadcast_order_event("order_status_updated", response)
+        
+        # Obter informações do usuário atual para incluir no broadcast
+        user_info = await get_current_user_from_token(token, session)
+        
+        # 🔥 SEMPRE ENVIAR order_updated quando há qualquer atualização
+        if __debug__:
+            print(f"[Pedidos] Enviando broadcast 'order_updated' para pedido {pedido_id}")
+        broadcast_order_event("order_updated", response, None, user_info)
+        
+        # 🔥 ENVIAR order_status_updated APENAS quando há mudança real de status
+        if status_changed:
+            if __debug__:
+                print(f"[Pedidos] Enviando broadcast 'order_status_updated' para pedido {pedido_id}")
+            broadcast_order_event("order_status_updated", response, None, user_info)
+        
         return response
         
     except HTTPException:
@@ -469,6 +752,11 @@ async def deletar_pedido(
         db_pedido = await session.get(Pedido, pedido_id)
         if not db_pedido:
             raise HTTPException(status_code=404, detail="Pedido não encontrado")
+
+        images_result = await session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido_id))
+        for image in images_result.all():
+            delete_media_file(image.path)
+            await session.delete(image)
         
         await session.delete(db_pedido)
         await session.commit()
