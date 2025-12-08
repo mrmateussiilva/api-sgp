@@ -6,7 +6,7 @@ import pytest
 from httpx import AsyncClient
 from datetime import datetime
 import pedidos.router
-from pedidos.schema import Status, ItemPedido, Acabamento
+from pedidos.schema import Status, ItemPedido, Acabamento, PedidoImagem
 
 SAMPLE_IMAGE_DATA = (
     "data:image/png;base64,"
@@ -367,6 +367,84 @@ async def test_criar_pedido_salva_imagem_e_expoe_download(client: AsyncClient, c
     assert download.content.startswith(b"\x89PNG")
 
 
+@pytest.mark.asyncio
+async def test_criar_pedido_retorna_imagem_path(client: AsyncClient, clean_db, media_root):
+    """Resposta deve incluir caminho físico relativo da imagem salva."""
+    response = await client.post("/pedidos/", json={
+        "cliente": "Cliente com caminho",
+        "data_entrada": "2024-01-15",
+        "items": [
+            {
+                "id": "legacy-item",
+                "descricao": "Item com arte",
+                "tipo_producao": "banner",
+                "imagem": SAMPLE_IMAGE_DATA,
+            }
+        ]
+    })
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+
+    assert item["imagem"].startswith("/pedidos/imagens/")
+    assert item["imagem_path"].startswith("pedidos/")
+
+    saved_file = media_root / item["imagem_path"]
+    assert saved_file.exists()
+    assert saved_file.is_file()
+
+
+@pytest.mark.asyncio
+async def test_respostas_populam_imagem_path_para_registros_antigos(
+    client: AsyncClient,
+    clean_db,
+    test_session,
+    media_root,
+):
+    """Itens sem imagem no JSON devem receber URL e caminho baseado em PedidoImagem existente."""
+    create_response = await client.post("/pedidos/", json={
+        "cliente": "Cliente legado",
+        "data_entrada": "2024-01-15",
+        "items": [
+            {
+                "id": 123,
+                "descricao": "Item legado",
+                "tipo_producao": "banner",
+            }
+        ]
+    })
+    assert create_response.status_code == 200
+    pedido_id = create_response.json()["id"]
+
+    legacy_path = f"pedidos/{pedido_id}/legacy.png"
+    legacy_file = media_root / legacy_path
+    legacy_file.parent.mkdir(parents=True, exist_ok=True)
+    legacy_file.write_bytes(b"\x89PNG")
+
+    image_row = PedidoImagem(
+        pedido_id=pedido_id,
+        item_index=0,
+        item_identificador="123",
+        filename="legacy.png",
+        mime_type="image/png",
+        path=legacy_path,
+        tamanho=4,
+    )
+    test_session.add(image_row)
+    await test_session.commit()
+    await test_session.refresh(image_row)
+
+    list_response = await client.get("/pedidos")
+    assert list_response.status_code == 200
+    pedido_data = list_response.json()[0]
+    item = pedido_data["items"][0]
+
+    assert item["imagem"].endswith(f"/{image_row.id}")
+    assert item["imagem_path"] == legacy_path
+
+    detail_response = await client.get(f"/pedidos/{pedido_id}")
+    assert detail_response.status_code == 200
+    detail_item = detail_response.json()["items"][0]
+    assert detail_item["imagem_path"] == legacy_path
 @pytest.mark.asyncio
 async def test_atualizar_pedido_substitui_imagem_antiga(client: AsyncClient, clean_db, media_root):
     """Atualizar item com nova imagem troca o arquivo salvo e remove o antigo."""
