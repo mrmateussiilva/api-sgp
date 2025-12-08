@@ -38,6 +38,7 @@ class ItemPedido(SQLModel):
     observacao: Optional[str] = None
     valor_unitario: Optional[str] = None
     imagem: Optional[str] = None
+    imagem_path: Optional[str] = None
 
     # Campos adicionais manipulados pelo frontend
     tipo_acabamento: Optional[str] = None

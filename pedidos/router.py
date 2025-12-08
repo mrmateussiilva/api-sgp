@@ -278,6 +278,7 @@ def prepare_items_for_storage(
             if isinstance(image_value, str) and is_data_url(image_value):
                 pending_uploads.append(PendingImageUpload(index, identifier, image_value))
                 item_dict['imagem'] = None
+                item_dict['imagem_path'] = None
             elif (
                 allow_removal
                 and identifier
@@ -285,6 +286,7 @@ def prepare_items_for_storage(
             ):
                 pending_removals.append(PendingImageRemoval(index, identifier))
                 item_dict['imagem'] = None
+                item_dict['imagem_path'] = None
         normalized_items.append(item_dict)
     return normalized_items, pending_uploads, pending_removals
 
@@ -341,6 +343,7 @@ async def apply_image_changes(
             has_changes = True
             if 0 <= removal.index < len(items_payload):
                 items_payload[removal.index]['imagem'] = None
+                items_payload[removal.index]['imagem_path'] = None
 
     for upload in uploads:
         record = _pop_matching(upload.identifier, upload.index)
@@ -371,10 +374,48 @@ async def apply_image_changes(
         print(f"[UPLOAD] URL da imagem construída: {url} para item index {upload.index}")
         if 0 <= upload.index < len(items_payload):
             items_payload[upload.index]['imagem'] = url
+            items_payload[upload.index]['imagem_path'] = str(relative_path)
             print(f"[UPLOAD] Caminho da imagem salvo no item: {items_payload[upload.index].get('imagem')}")
         has_changes = True
 
     return has_changes
+
+
+async def populate_items_with_image_paths(
+    session: AsyncSession,
+    pedido_id: int,
+    items: List[ItemPedido],
+) -> None:
+    if not items:
+        return
+
+    result = await session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido_id))
+    images = result.all()
+    if not images:
+        return
+
+    def _item_identifier(item: ItemPedido) -> Optional[str]:
+        value = getattr(item, 'id', None)
+        if value is None:
+            return None
+        return str(value)
+
+    for image in images:
+        target_item: Optional[ItemPedido] = None
+        if image.item_identificador:
+            for candidate in items:
+                if _item_identifier(candidate) == image.item_identificador:
+                    target_item = candidate
+                    break
+        if target_item is None and image.item_index is not None:
+            if 0 <= image.item_index < len(items):
+                target_item = items[image.item_index]
+        if target_item is None:
+            continue
+
+        if not getattr(target_item, 'imagem', None):
+            target_item.imagem = build_api_path(f"/pedidos/imagens/{image.id}")
+        target_item.imagem_path = image.path
 
 
 async def get_next_order_number(session: AsyncSession) -> str:
@@ -622,7 +663,9 @@ async def criar_pedido(
         cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
         pedido_dict['cidade_cliente'] = cidade
         pedido_dict['estado_cliente'] = estado
-        pedido_dict['items'] = json_string_to_items(db_pedido.items or "[]")
+        items_response = json_string_to_items(db_pedido.items or "[]")
+        await populate_items_with_image_paths(session, db_pedido.id, items_response)
+        pedido_dict['items'] = items_response
         response = PedidoResponse(**pedido_dict)
         
         # Obter informações do usuário atual para incluir no broadcast
@@ -689,6 +732,7 @@ async def listar_pedidos(
         response_pedidos = []
         for pedido in pedidos:
             items = json_string_to_items(pedido.items)
+            await populate_items_with_image_paths(session, pedido.id, items)
 
             pedido_dict = pedido.model_dump()
             cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
@@ -715,6 +759,7 @@ async def obter_pedido(pedido_id: int, session: AsyncSession = Depends(get_sessi
         
         # Converter items de JSON string para objetos
         items = json_string_to_items(pedido.items)
+        await populate_items_with_image_paths(session, pedido.id, items)
 
         pedido_dict = pedido.model_dump()
         cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
@@ -849,6 +894,7 @@ async def atualizar_pedido(
         
         # Converter de volta para response
         items = json_string_to_items(db_pedido.items or "[]")
+        await populate_items_with_image_paths(session, db_pedido.id, items)
         
         pedido_dict = db_pedido.model_dump()
         cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
@@ -962,6 +1008,7 @@ async def listar_pedidos_por_status(status: str, session: AsyncSession = Depends
         response_pedidos = []
         for pedido in pedidos:
             items = json_string_to_items(pedido.items)
+            await populate_items_with_image_paths(session, pedido.id, items)
 
             pedido_dict = pedido.model_dump()
             cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
