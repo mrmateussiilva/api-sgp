@@ -26,8 +26,10 @@ class Settings(BaseSettings):
         "http://127.0.0.1:1420",
         "http://localhost",
         "http://127.0.0.1",
+        "http://tauri.localhost",
+        "tauri://localhost",
     ]
-    BACKEND_CORS_ALLOW_ORIGIN_REGEX: Optional[str] = r"tauri://.*"
+    BACKEND_CORS_ALLOW_ORIGIN_REGEX: Optional[str] = r"(tauri://.*|http://tauri\.localhost.*|http://.*\.localhost.*)"
 
     # Configurações de Segurança
     SECRET_KEY: SecretStr = SecretStr("change-me")

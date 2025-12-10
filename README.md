@@ -175,6 +175,22 @@ python scripts/seed_pedidos.py --amount 10
 
 Use `--amount` (`-n`) para informar quantos pedidos deseja inserir. O script gera registros distribuídos entre os status (pendente, em produção, pronto, entregue e cancelado) e é idempotente, ou seja, não duplica números já existentes.
 
+## 💾 Backups e manutenção do banco
+
+Scripts utilitários foram adicionados em `scripts/` para operações rotineiras com o SQLite:
+
+- **Backup**  
+  ```bash
+  python scripts/backup_database.py --dest backups/db --retention 10
+  ```  
+  Cria um backup consistente usando a API nativa do SQLite. O diretório de destino é criado automaticamente e a opção `--retention` limita quantos arquivos manter (0 desativa a limpeza).
+
+- **Manutenção**  
+  ```bash
+  python scripts/db_maintenance.py --analyze --optimize
+  ```  
+  Executa `PRAGMA integrity_check` e, por padrão, um `VACUUM`. Flags opcionais permitem rodar `ANALYZE` e `PRAGMA optimize`. Use `--no-vacuum` para pular a compactação.
+
 ## 📖 Documentação da API
 
 Acesse a documentação interativa da API em:
