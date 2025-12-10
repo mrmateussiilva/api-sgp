@@ -191,6 +191,35 @@ Scripts utilitários foram adicionados em `scripts/` para operações rotineiras
   ```  
   Executa `PRAGMA integrity_check` e, por padrão, um `VACUUM`. Flags opcionais permitem rodar `ANALYZE` e `PRAGMA optimize`. Use `--no-vacuum` para pular a compactação.
 
+## 🔄 Atualizador automático no Windows
+
+O script PowerShell `scripts/update.ps1` consulta um manifesto JSON, compara a versão local e instala automaticamente o MSI quando existe build nova para Windows:
+
+```jsonc
+{
+  "version": "1.0.1",
+  "notes": "Correções gerais.",
+  "pub_date": "2025-01-01T00:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://sgp.finderbit.com.br/update/releases/windows/SGP_1.0.1_x64.msi"
+    }
+  }
+}
+```
+
+Execução manual:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\update.ps1 `
+  -ManifestUrl https://sgp.finderbit.com.br/update/releases/latest.json `
+  -MsiArgs "/qn"
+```
+
+- O arquivo `C:\ProgramData\SGP\version.json` guarda a versão instalada; delete-o ou use `-Force` para reinstalar.
+- Ajuste `-DownloadDir` se quiser armazenar os instaladores em outro local.
+- Para rodar automaticamente, cadastre esse comando no **Task Scheduler** com privilégios elevados e monitore o histórico da tarefa.
+
 ## 📖 Documentação da API
 
 Acesse a documentação interativa da API em:
