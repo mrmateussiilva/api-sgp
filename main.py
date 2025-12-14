@@ -25,7 +25,7 @@ from notificacoes.router import router as notificacoes_router
 from fichas.router import router as fichas_router
 
 # Importar modelos para garantir que as tabelas sejam criadas
-from fichas.schema import Ficha  # noqa: F401
+from fichas.schema import Ficha, FichaTemplateModel  # noqa: F401
 
 setup_logging()
 
