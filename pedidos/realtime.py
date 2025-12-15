@@ -10,7 +10,7 @@ class OrdersNotifier:
         self._lock = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket) -> None:
-        await websocket.accept()
+        # Conexão já foi aceita antes de chamar este método
         async with self._lock:
             self._connections.add(websocket)
             if __debug__:

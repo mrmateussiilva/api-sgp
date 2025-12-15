@@ -91,13 +91,17 @@ async def health():
 @app.websocket("/ws/orders")
 async def orders_websocket(websocket: WebSocket):
     """Canal websocket protegido por token JWT."""
+    # Aceitar conexão primeiro
+    await websocket.accept()
+    
+    # Validar token após aceitar
     token = websocket.query_params.get("token")
     if not token:
         token = extract_bearer_token(websocket.headers.get("Authorization"))
 
     user = await get_user_from_token(token)
     if not user:
-        await websocket.close(code=1008)
+        await websocket.close(code=1008, reason="Token inválido ou ausente")
         return
 
     await orders_notifier.connect(websocket)

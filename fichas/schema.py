@@ -51,6 +51,7 @@ class FichaResponse(FichaBase):
     """Schema de resposta da ficha."""
     id: int
     imagem_path: Optional[str] = None
+    imagem_url: Optional[str] = None  # URL completa para acessar a imagem
     data_criacao: datetime
     ultima_atualizacao: datetime
 

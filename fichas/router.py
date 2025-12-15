@@ -12,6 +12,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from base import get_session
+from config import settings
 from pedidos.router import require_admin
 from .image_storage import save_base64_image, ImageStorageError, absolute_media_path
 from .schema import (
@@ -30,6 +31,18 @@ from .schema import (
 )
 
 router = APIRouter(prefix="/fichas", tags=["Fichas"])
+
+
+def _build_ficha_response(ficha: Ficha) -> FichaResponse:
+    """Constrói FichaResponse com imagem_url calculada."""
+    data = ficha.model_dump()
+    if ficha.imagem_path:
+        # Construir URL relativa ao endpoint de imagens (considerando prefixo da API)
+        api_prefix = settings.API_V1_STR.rstrip("/") if settings.API_V1_STR else ""
+        data["imagem_url"] = f"{api_prefix}/fichas/imagens/{ficha.id}"
+    else:
+        data["imagem_url"] = None
+    return FichaResponse(**data)
 
 
 def _clone_default_template(template: FichaTemplateData) -> FichaTemplateData:
@@ -300,7 +313,7 @@ async def criar_ficha(
         await session.commit()
         await session.refresh(db_ficha)
         
-        return FichaResponse(**db_ficha.model_dump())
+        return _build_ficha_response(db_ficha)
         
     except HTTPException:
         await session.rollback()
@@ -348,7 +361,7 @@ async def atualizar_ficha(
         await session.commit()
         await session.refresh(db_ficha)
         
-        return FichaResponse(**db_ficha.model_dump())
+        return _build_ficha_response(db_ficha)
         
     except HTTPException:
         raise
@@ -368,7 +381,7 @@ async def obter_ficha(
         if not ficha:
             raise HTTPException(status_code=404, detail="Ficha não encontrada")
         
-        return FichaResponse(**ficha.model_dump())
+        return _build_ficha_response(ficha)
         
     except HTTPException:
         raise
@@ -390,7 +403,7 @@ async def listar_fichas(
         result = await session.exec(statement)
         fichas = result.all()
         
-        return [FichaResponse(**ficha.model_dump()) for ficha in fichas]
+        return [_build_ficha_response(ficha) for ficha in fichas]
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao listar fichas: {str(e)}")
