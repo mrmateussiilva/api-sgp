@@ -14,7 +14,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from base import get_session
 from config import settings
 from pedidos.router import require_admin
-from .image_storage import save_base64_image, ImageStorageError, absolute_media_path
+from .image_storage import (
+    save_base64_image,
+    delete_ficha_image,
+    ImageStorageError,
+    absolute_media_path,
+)
 from .schema import (
     Ficha,
     FichaCreate,
@@ -344,6 +349,10 @@ async def atualizar_ficha(
         
         # Processar nova imagem se fornecida
         if imagem_base64 is not None:
+            # Deletar imagem antiga se existir
+            if db_ficha.imagem_path:
+                delete_ficha_image(db_ficha.imagem_path)
+            
             try:
                 imagem_path = save_base64_image(imagem_base64, ficha_id)
                 update_data["imagem_path"] = imagem_path
@@ -438,6 +447,39 @@ async def salvar_templates(
         raise HTTPException(status_code=400, detail=f"Erro ao salvar templates: {exc}") from exc
 
 
+@router.delete("/{ficha_id}")
+async def deletar_ficha(
+    ficha_id: int,
+    session: AsyncSession = Depends(get_session),
+    _admin: bool = Depends(require_admin),
+):
+    """
+    Deleta uma ficha e sua imagem associada.
+    Requer permissão de administrador.
+    """
+    try:
+        db_ficha = await session.get(Ficha, ficha_id)
+        if not db_ficha:
+            raise HTTPException(status_code=404, detail="Ficha não encontrada")
+        
+        # Deletar imagem se existir
+        if db_ficha.imagem_path:
+            delete_ficha_image(db_ficha.imagem_path)
+        
+        # Deletar ficha do banco
+        await session.delete(db_ficha)
+        await session.commit()
+        
+        return {"message": f"Ficha {ficha_id} deletada com sucesso"}
+        
+    except HTTPException:
+        await session.rollback()
+        raise
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao deletar ficha: {str(e)}")
+
+
 @router.get("/imagens/{ficha_id}")
 async def obter_imagem_ficha(
     ficha_id: int,
@@ -462,9 +504,21 @@ async def obter_imagem_ficha(
         if not absolute_path.exists():
             raise HTTPException(status_code=404, detail="Arquivo de imagem não encontrado")
         
+        # Detectar tipo MIME baseado na extensão
+        ext = absolute_path.suffix.lower()
+        media_types = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.bmp': 'image/bmp',
+            '.webp': 'image/webp',
+        }
+        media_type = media_types.get(ext, 'image/png')
+        
         return FileResponse(
             absolute_path,
-            media_type="image/png",
+            media_type=media_type,
             filename=Path(ficha.imagem_path).name
         )
         
