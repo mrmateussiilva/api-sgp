@@ -29,6 +29,7 @@ from .schema import (
     FichaTemplateResponse,
     FichaTemplatesResponse,
     FichaTemplatesUpdate,
+    FichaTemplatesHTMLUpdate,
     FichaUpdate,
     TemplateFieldPayload,
     TemplateType,
@@ -445,6 +446,150 @@ async def salvar_templates(
     except Exception as exc:
         await session.rollback()
         raise HTTPException(status_code=400, detail=f"Erro ao salvar templates: {exc}") from exc
+
+
+@router.put("/templates/html", response_model=dict)
+async def salvar_templates_html(
+    payload: FichaTemplatesHTMLUpdate,
+    _admin: bool = Depends(require_admin),
+) -> dict:
+    """
+    Salva os templates HTML no servidor.
+    Requer permissão de administrador.
+    """
+    try:
+        from pathlib import Path
+        
+        # Obter diretório de mídia
+        media_root = Path(settings.MEDIA_ROOT)
+        templates_dir = media_root / "templates"
+        
+        # Criar diretório se não existir
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        
+        saved_files = {}
+        
+        # Salvar template geral
+        if payload.geral:
+            geral_path = templates_dir / "template-geral.html"
+            geral_path.write_text(payload.geral, encoding="utf-8")
+            saved_files["geral"] = str(geral_path.relative_to(media_root))
+        
+        # Salvar template resumo
+        if payload.resumo:
+            resumo_path = templates_dir / "template-resumo.html"
+            resumo_path.write_text(payload.resumo, encoding="utf-8")
+            saved_files["resumo"] = str(resumo_path.relative_to(media_root))
+        
+        return {
+            "message": "Templates HTML salvos com sucesso",
+            "files": saved_files
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao salvar templates HTML: {str(exc)}"
+        ) from exc
+
+
+@router.get("/templates/html/{template_type}")
+async def obter_template_html(
+    template_type: TemplateType,
+    _admin: bool = Depends(require_admin),
+):
+    """
+    Obtém o template HTML do servidor.
+    Requer permissão de administrador.
+    """
+    try:
+        from pathlib import Path
+        from fastapi.responses import Response
+        
+        # Obter diretório de mídia
+        media_root = Path(settings.MEDIA_ROOT)
+        templates_dir = media_root / "templates"
+        
+        # Determinar arquivo baseado no tipo
+        filename = f"template-{template_type}.html"
+        file_path = templates_dir / filename
+        
+        if not file_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Template HTML '{template_type}' não encontrado"
+            )
+        
+        # Ler conteúdo do arquivo
+        content = file_path.read_text(encoding="utf-8")
+        
+        return Response(
+            content=content,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"'
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao obter template HTML: {str(exc)}"
+        ) from exc
+
+
+@router.get("/templates/html")
+async def listar_templates_html(
+    _admin: bool = Depends(require_admin),
+) -> dict:
+    """
+    Lista os templates HTML disponíveis no servidor.
+    Requer permissão de administrador.
+    """
+    try:
+        from pathlib import Path
+        
+        # Obter diretório de mídia
+        media_root = Path(settings.MEDIA_ROOT)
+        templates_dir = media_root / "templates"
+        
+        templates = {}
+        
+        # Verificar template geral
+        geral_path = templates_dir / "template-geral.html"
+        if geral_path.exists():
+            stat = geral_path.stat()
+            templates["geral"] = {
+                "exists": True,
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "path": str(geral_path.relative_to(media_root))
+            }
+        else:
+            templates["geral"] = {"exists": False}
+        
+        # Verificar template resumo
+        resumo_path = templates_dir / "template-resumo.html"
+        if resumo_path.exists():
+            stat = resumo_path.stat()
+            templates["resumo"] = {
+                "exists": True,
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "path": str(resumo_path.relative_to(media_root))
+            }
+        else:
+            templates["resumo"] = {"exists": False}
+        
+        return {
+            "templates": templates,
+            "templates_dir": str(templates_dir.relative_to(media_root))
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao listar templates HTML: {str(exc)}"
+        ) from exc
 
 
 @router.delete("/{ficha_id}")

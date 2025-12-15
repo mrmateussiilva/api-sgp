@@ -134,3 +134,9 @@ class FichaTemplatesResponse(BaseModel):
 class FichaTemplatesUpdate(BaseModel):
     geral: FichaTemplateData
     resumo: FichaTemplateData
+
+
+class FichaTemplatesHTMLUpdate(BaseModel):
+    """Schema para atualização de templates HTML."""
+    geral: str  # Conteúdo HTML do template geral
+    resumo: str  # Conteúdo HTML do template resumo
