@@ -90,6 +90,7 @@ async def ensure_order_indexes() -> None:
         "CREATE INDEX IF NOT EXISTS idx_pedidos_data_entrada ON pedidos(data_entrada)",
         "CREATE INDEX IF NOT EXISTS idx_pedidos_data_entrega ON pedidos(data_entrega)",
         "CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos(cliente)",
+        "CREATE INDEX IF NOT EXISTS idx_pedidos_data_criacao ON pedidos(data_criacao)",
     )
 
     def _apply_indexes(sync_conn):
@@ -386,6 +387,7 @@ async def populate_items_with_image_paths(
     pedido_id: int,
     items: List[ItemPedido],
 ) -> None:
+    """Popula items com caminhos de imagens para um único pedido."""
     if not items:
         return
 
@@ -416,6 +418,65 @@ async def populate_items_with_image_paths(
         if not getattr(target_item, 'imagem', None):
             target_item.imagem = build_api_path(f"/pedidos/imagens/{image.id}")
         target_item.imagem_path = image.path
+
+
+async def populate_items_with_image_paths_batch(
+    session: AsyncSession,
+    pedidos: List[Pedido],
+    pedidos_items: dict[int, List[ItemPedido]],
+) -> None:
+    """
+    Versão otimizada que busca todas as imagens de uma vez (evita N+1 queries).
+    Popula items com caminhos de imagens para múltiplos pedidos.
+    """
+    if not pedidos:
+        return
+    
+    pedido_ids = [p.id for p in pedidos if p.id is not None]
+    if not pedido_ids:
+        return
+
+    # Uma única query para buscar todas as imagens de todos os pedidos
+    result = await session.exec(
+        select(PedidoImagem).where(PedidoImagem.pedido_id.in_(pedido_ids))
+    )
+    all_images = result.all()
+    
+    # Agrupar imagens por pedido_id
+    images_by_pedido: dict[int, List[PedidoImagem]] = {}
+    for image in all_images:
+        if image.pedido_id not in images_by_pedido:
+            images_by_pedido[image.pedido_id] = []
+        images_by_pedido[image.pedido_id].append(image)
+    
+    # Processar imagens para cada pedido
+    for pedido_id, items in pedidos_items.items():
+        images = images_by_pedido.get(pedido_id, [])
+        if not images:
+            continue
+        
+        def _item_identifier(item: ItemPedido) -> Optional[str]:
+            value = getattr(item, 'id', None)
+            if value is None:
+                return None
+            return str(value)
+        
+        for image in images:
+            target_item: Optional[ItemPedido] = None
+            if image.item_identificador:
+                for candidate in items:
+                    if _item_identifier(candidate) == image.item_identificador:
+                        target_item = candidate
+                        break
+            if target_item is None and image.item_index is not None:
+                if 0 <= image.item_index < len(items):
+                    target_item = items[image.item_index]
+            if target_item is None:
+                continue
+            
+            if not getattr(target_item, 'imagem', None):
+                target_item.imagem = build_api_path(f"/pedidos/imagens/{image.id}")
+            target_item.imagem_path = image.path
 
 
 async def get_next_order_number(session: AsyncSession) -> str:
@@ -728,17 +789,25 @@ async def listar_pedidos(
         result = await session.exec(filters)
         pedidos = result.all()
         
-        # Converter items de JSON string para objetos
+        # Converter items de JSON string para objetos (otimizado: batch)
+        pedidos_items: dict[int, List[ItemPedido]] = {}
+        for pedido in pedidos:
+            if pedido.id is not None:
+                items = json_string_to_items(pedido.items)
+                pedidos_items[pedido.id] = items
+        
+        # Buscar todas as imagens de uma vez (evita N+1 queries)
+        await populate_items_with_image_paths_batch(session, pedidos, pedidos_items)
+        
+        # Montar resposta
         response_pedidos = []
         for pedido in pedidos:
-            items = json_string_to_items(pedido.items)
-            await populate_items_with_image_paths(session, pedido.id, items)
-
             pedido_dict = pedido.model_dump()
             cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
             pedido_dict['cidade_cliente'] = cidade
             pedido_dict['estado_cliente'] = estado
-            pedido_dict['items'] = items
+            if pedido.id is not None:
+                pedido_dict['items'] = pedidos_items.get(pedido.id, [])
             response_pedido = PedidoResponse(**pedido_dict)
             response_pedidos.append(response_pedido)
         
@@ -1004,17 +1073,25 @@ async def listar_pedidos_por_status(status: str, session: AsyncSession = Depends
         result = await session.exec(select(Pedido).where(Pedido.status == status_enum))
         pedidos = result.all()
         
-        # Converter items de JSON string para objetos
+        # Converter items de JSON string para objetos (otimizado: batch)
+        pedidos_items: dict[int, List[ItemPedido]] = {}
+        for pedido in pedidos:
+            if pedido.id is not None:
+                items = json_string_to_items(pedido.items)
+                pedidos_items[pedido.id] = items
+        
+        # Buscar todas as imagens de uma vez (evita N+1 queries)
+        await populate_items_with_image_paths_batch(session, pedidos, pedidos_items)
+        
+        # Montar resposta
         response_pedidos = []
         for pedido in pedidos:
-            items = json_string_to_items(pedido.items)
-            await populate_items_with_image_paths(session, pedido.id, items)
-
             pedido_dict = pedido.model_dump()
             cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
             pedido_dict['cidade_cliente'] = cidade
             pedido_dict['estado_cliente'] = estado
-            pedido_dict['items'] = items
+            if pedido.id is not None:
+                pedido_dict['items'] = pedidos_items.get(pedido.id, [])
             response_pedido = PedidoResponse(**pedido_dict)
             response_pedidos.append(response_pedido)
         
