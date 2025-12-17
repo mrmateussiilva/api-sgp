@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 from typing import Any, List, Optional
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import text, func
+from sqlalchemy.exc import IntegrityError, OperationalError
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse
 from typing import Any
@@ -38,10 +40,9 @@ from .images import (
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored", auto_error=False)
 
-router = APIRouter(prefix="/pedidos", tags=["Pedidos"])
+logger = logging.getLogger(__name__)
 
-# Variável global para rastrear o último ID de pedido criado
-ULTIMO_PEDIDO_ID = 0
+router = APIRouter(prefix="/pedidos", tags=["Pedidos"])
 
 STATE_SEPARATOR = "||"
 DEFAULT_PAGE_SIZE = 50
@@ -80,10 +81,13 @@ async def ensure_order_columns() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(_apply_columns)
     except Exception as exc:
-        print(f"[pedidos] aviso ao garantir colunas obrigatórias: {exc}")
+        logger.warning("[pedidos] aviso ao garantir colunas obrigatórias: %s", exc)
 
 
 async def ensure_order_indexes() -> None:
+    """
+    Garante índices auxiliares e unicidade do campo numero para segurança em concorrência.
+    """
     statements = (
         "CREATE INDEX IF NOT EXISTS idx_pedidos_status ON pedidos(status)",
         "CREATE INDEX IF NOT EXISTS idx_pedidos_numero ON pedidos(numero)",
@@ -91,6 +95,8 @@ async def ensure_order_indexes() -> None:
         "CREATE INDEX IF NOT EXISTS idx_pedidos_data_entrega ON pedidos(data_entrega)",
         "CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos(cliente)",
         "CREATE INDEX IF NOT EXISTS idx_pedidos_data_criacao ON pedidos(data_criacao)",
+        # índice único para evitar duplicidade silenciosa de numero sob concorrência
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_pedidos_numero ON pedidos(numero)",
     )
 
     def _apply_indexes(sync_conn):
@@ -101,7 +107,7 @@ async def ensure_order_indexes() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(_apply_indexes)
     except Exception as exc:
-        print(f"[pedidos] aviso ao garantir indices: {exc}")
+        logger.warning("[pedidos] aviso ao garantir indices: %s", exc)
 
 
 async def ensure_order_schema() -> None:
@@ -480,59 +486,49 @@ async def populate_items_with_image_paths_batch(
 
 
 async def get_next_order_number(session: AsyncSession) -> str:
-    """Gera o próximo número incremental de pedido baseado no maior número existente."""
+    """
+    Gera o próximo número incremental de pedido baseado no maior número existente.
+
+    A unicidade final é garantida por um índice UNIQUE na coluna numero.
+    Se duas requisições concorrentes gerarem o mesmo número, o banco levantará
+    IntegrityError e a criação será re-tentada em criar_pedido.
+    """
     try:
-        # Buscar o maior número numérico existente
-        # SQLite: tentar converter para INTEGER e pegar o máximo
-        # Usar uma subquery para filtrar apenas números válidos
         result = await session.execute(
-            text("""
+            text(
+                """
                 SELECT MAX(CAST(numero AS INTEGER)) 
                 FROM pedidos 
                 WHERE numero IS NOT NULL 
-                AND numero != '' 
-                AND CAST(numero AS INTEGER) > 0
-            """)
+                  AND numero != '' 
+                  AND CAST(numero AS INTEGER) > 0
+                """
+            )
         )
         max_num = result.scalar()
-        
-        # Se não houver pedidos ou números válidos, começar em 1
+
         if max_num is None:
             next_num = 1
         else:
             next_num = int(max_num) + 1
-        
-        # Formatar com zeros à esquerda (10 dígitos, como no Tauri)
+
         return str(next_num).zfill(10)
-    except (ValueError, TypeError) as e:
-        # Se houver erro ao converter números (ex: números com formato inválido)
-        # Buscar o maior ID como fallback
-        print(f"[WARNING] Erro ao converter número, usando ID como fallback: {e}")
-        try:
-            result = await session.execute(
-                text("SELECT MAX(id) FROM pedidos")
-            )
-            max_id = result.scalar()
-            next_num = (max_id or 0) + 1
-            return str(next_num).zfill(10)
-        except Exception as fallback_error:
-            print(f"[ERROR] Erro no fallback também: {fallback_error}")
-            # Último recurso: começar do 1
-            return "0000000001"
-    except Exception as e:
-        # Outros erros inesperados
-        print(f"[ERROR] Erro inesperado ao gerar número incremental: {e}")
-        # Buscar o maior ID como fallback
-        try:
-            result = await session.execute(
-                text("SELECT MAX(id) FROM pedidos")
-            )
-            max_id = result.scalar()
-            next_num = (max_id or 0) + 1
-            return str(next_num).zfill(10)
-        except Exception:
-            # Último recurso: começar do 1
-            return "0000000001"
+    except (ValueError, TypeError) as exc:
+        # Números com formato inválido – usar ID como fallback
+        logger.warning("[pedidos] Erro ao converter numero, usando ID como fallback: %s", exc)
+    except Exception as exc:
+        # Outros erros inesperados – usar ID como fallback
+        logger.error("[pedidos] Erro inesperado ao gerar numero incremental: %s", exc)
+
+    # Fallback: usar maior id
+    try:
+        result = await session.execute(text("SELECT MAX(id) FROM pedidos"))
+        max_id = result.scalar()
+        next_num = (max_id or 0) + 1
+        return str(next_num).zfill(10)
+    except Exception as exc:
+        logger.error("[pedidos] Erro ao usar ID como fallback para numero: %s", exc)
+        return "0000000001"
 
 
 def ensure_pedido_defaults(pedido_data: dict) -> dict:
@@ -682,65 +678,103 @@ async def criar_pedido(
     """
     Cria um novo pedido com todos os dados fornecidos.
     Aceita o JSON completo com items, dados do cliente, valores, etc.
+
+    Resistente a concorrência:
+    - numero é protegido por UNIQUE em banco;
+    - em caso de colisão ou pequenos locks, há tentativas extras antes de falhar.
     """
-    global ULTIMO_PEDIDO_ID
-    try:
-        # Converter o pedido para dict e preparar para o banco
-        pedido_data = pedido.model_dump(exclude_unset=True)
-        raw_items = pedido_data.pop('items', [])
-        items_payload, pending_uploads, _ = prepare_items_for_storage(raw_items)
-        # Normalizar campos obrigatórios
-        pedido_data = ensure_pedido_defaults(pedido_data)
-        
-        # Gerar número incremental se não foi fornecido
-        if not pedido_data.get('numero'):
-            pedido_data['numero'] = await get_next_order_number(session)
+    MAX_RETRIES = 5
 
-        # Converter items para JSON string para armazenar no banco
-        items_json = items_to_json_string(items_payload)
-        
-        # Criar o pedido no banco
-        db_pedido = Pedido(
-            **pedido_data,
-            items=items_json,
-            data_criacao=datetime.utcnow(),
-            ultima_atualizacao=datetime.utcnow()
-        )
-        
-        session.add(db_pedido)
-        await session.flush()
+    # Converter o pedido para dict e preparar base para reuso entre tentativas
+    base_pedido_data = pedido.model_dump(exclude_unset=True)
+    raw_items = base_pedido_data.pop("items", [])
+    items_payload, pending_uploads, _ = prepare_items_for_storage(raw_items)
 
-        if await apply_image_changes(session, db_pedido.id, pending_uploads, [], items_payload):
-            db_pedido.items = items_to_json_string(items_payload)
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            pedido_data = dict(base_pedido_data)
+            pedido_data = ensure_pedido_defaults(pedido_data)
 
-        await session.commit()
-        await session.refresh(db_pedido)
-        
-        # Incrementar contador global de pedidos
-        ULTIMO_PEDIDO_ID += 1
-        
-        # Converter de volta para response
-        pedido_dict = db_pedido.model_dump()
-        cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
-        pedido_dict['cidade_cliente'] = cidade
-        pedido_dict['estado_cliente'] = estado
-        items_response = json_string_to_items(db_pedido.items or "[]")
-        await populate_items_with_image_paths(session, db_pedido.id, items_response)
-        pedido_dict['items'] = items_response
-        response = PedidoResponse(**pedido_dict)
-        
-        # Obter informações do usuário atual para incluir no broadcast
-        user_info = await get_current_user_from_token(token, session)
-        broadcast_order_event("order_created", response, None, user_info)
-        
-        return response
-        
-    except HTTPException:
-        await session.rollback()
-        raise
-    except Exception as e:
-        await session.rollback()
-        raise HTTPException(status_code=400, detail=f"Erro ao criar pedido: {str(e)}")
+            if not pedido_data.get("numero"):
+                pedido_data["numero"] = await get_next_order_number(session)
+
+            items_json = items_to_json_string(items_payload)
+
+            db_pedido = Pedido(
+                **pedido_data,
+                items=items_json,
+                data_criacao=datetime.utcnow(),
+                ultima_atualizacao=datetime.utcnow(),
+            )
+
+            session.add(db_pedido)
+            await session.flush()
+
+            if await apply_image_changes(session, db_pedido.id, pending_uploads, [], items_payload):
+                db_pedido.items = items_to_json_string(items_payload)
+
+            await session.commit()
+            await session.refresh(db_pedido)
+
+            pedido_dict = db_pedido.model_dump()
+            cidade, estado = decode_city_state(pedido_dict.get("cidade_cliente"))
+            pedido_dict["cidade_cliente"] = cidade
+            pedido_dict["estado_cliente"] = estado
+            items_response = json_string_to_items(db_pedido.items or "[]")
+            await populate_items_with_image_paths(session, db_pedido.id, items_response)
+            pedido_dict["items"] = items_response
+            response = PedidoResponse(**pedido_dict)
+
+            user_info = await get_current_user_from_token(token, session)
+            logger.info(
+                "Pedido criado com sucesso id=%s numero=%s cliente=%s",
+                db_pedido.id,
+                db_pedido.numero,
+                db_pedido.cliente,
+            )
+            broadcast_order_event("order_created", response, None, user_info)
+
+            return response
+
+        except HTTPException:
+            await session.rollback()
+            raise
+        except IntegrityError as exc:
+            await session.rollback()
+            msg = str(exc.orig).lower() if getattr(exc, "orig", None) else str(exc).lower()
+            if "uq_pedidos_numero" in msg or "unique" in msg or "numero" in msg:
+                if attempt >= MAX_RETRIES:
+                    logger.error(
+                        "Falha ao gerar numero único para pedido após %s tentativas: %s",
+                        attempt,
+                        exc,
+                    )
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Não foi possível gerar número único para o pedido. Tente novamente.",
+                    ) from exc
+                logger.warning("Colisão de numero de pedido detectada, tentando novamente (tentativa %s)", attempt)
+                continue
+            logger.error("Erro de integridade ao criar pedido: %s", exc)
+            raise HTTPException(status_code=400, detail=f"Erro de integridade ao criar pedido: {str(exc)}") from exc
+        except OperationalError as exc:
+            await session.rollback()
+            msg = str(exc.orig).lower() if getattr(exc, "orig", None) else str(exc).lower()
+            if "database is locked" in msg:
+                if attempt >= MAX_RETRIES:
+                    logger.error("Banco de dados locked ao criar pedido após %s tentativas: %s", attempt, exc)
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Banco de dados temporariamente ocupado. Tente novamente em instantes.",
+                    ) from exc
+                logger.warning("database is locked ao criar pedido, tentando novamente (tentativa %s)", attempt)
+                continue
+            logger.error("Erro de banco ao criar pedido: %s", exc)
+            raise HTTPException(status_code=400, detail=f"Erro de banco ao criar pedido: {str(exc)}") from exc
+        except Exception as exc:
+            await session.rollback()
+            logger.exception("Erro inesperado ao criar pedido: %s", exc)
+            raise HTTPException(status_code=400, detail=f"Erro ao criar pedido: {str(exc)}") from exc
 
 def _validate_iso_date(value: Optional[str], field_name: str) -> Optional[str]:
     if not value:
@@ -853,6 +887,7 @@ async def atualizar_pedido(
     """
     Atualiza um pedido existente. Aceita atualizações parciais.
     Requer permissão de administrador para alterar campo 'financeiro'.
+    Resistente a pequenas condições de corrida no campo numero.
     """
     try:
         db_pedido = await session.get(Pedido, pedido_id)
@@ -928,11 +963,40 @@ async def atualizar_pedido(
                 db_pedido.id,
                 pending_uploads,
                 pending_removals,
-                items_payload_for_images
+                items_payload_for_images,
             ):
                 db_pedido.items = items_to_json_string(items_payload_for_images)
 
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError as exc:
+            await session.rollback()
+            msg = str(exc.orig).lower() if getattr(exc, "orig", None) else str(exc).lower()
+            if "uq_pedidos_numero" in msg or "unique" in msg or "numero" in msg:
+                logger.warning(
+                    "Conflito de numero ao atualizar pedido id=%s numero=%s: %s",
+                    pedido_id,
+                    update_data.get("numero"),
+                    exc,
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="Já existe um pedido com este numero.",
+                ) from exc
+            logger.error("Erro de integridade ao atualizar pedido %s: %s", pedido_id, exc)
+            raise HTTPException(status_code=400, detail=f"Erro de integridade ao atualizar pedido: {str(exc)}") from exc
+        except OperationalError as exc:
+            await session.rollback()
+            msg = str(exc.orig).lower() if getattr(exc, "orig", None) else str(exc).lower()
+            if "database is locked" in msg:
+                logger.warning("database is locked ao atualizar pedido id=%s: %s", pedido_id, exc)
+                raise HTTPException(
+                    status_code=503,
+                    detail="Banco de dados temporariamente ocupado. Tente novamente em instantes.",
+                ) from exc
+            logger.error("Erro de banco ao atualizar pedido %s: %s", pedido_id, exc)
+            raise HTTPException(status_code=400, detail=f"Erro de banco ao atualizar pedido: {str(exc)}") from exc
+
         await session.refresh(db_pedido)
         
         # 🔥 CAPTURAR VALORES DEPOIS DA ATUALIZAÇÃO
@@ -977,13 +1041,13 @@ async def atualizar_pedido(
         
         # 🔥 SEMPRE ENVIAR order_updated quando há qualquer atualização
         if __debug__:
-            print(f"[Pedidos] Enviando broadcast 'order_updated' para pedido {pedido_id}")
+            logger.debug("[Pedidos] Enviando broadcast 'order_updated' para pedido %s", pedido_id)
         broadcast_order_event("order_updated", response, None, user_info)
         
         # 🔥 ENVIAR order_status_updated APENAS quando há mudança real de status
         if status_changed:
             if __debug__:
-                print(f"[Pedidos] Enviando broadcast 'order_status_updated' para pedido {pedido_id}")
+                logger.debug("[Pedidos] Enviando broadcast 'order_status_updated' para pedido %s", pedido_id)
             broadcast_order_event("order_status_updated", response, None, user_info)
         
         return response

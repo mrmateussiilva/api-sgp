@@ -52,13 +52,15 @@ async def test_engine():
             if col_name not in existing_columns:
                 await conn.execute(text(ddl))
         
-        # Criar índices
+        # Criar índices (mesmo padrão de ensure_order_indexes)
         indexes = [
             "CREATE INDEX IF NOT EXISTS idx_pedidos_status ON pedidos(status)",
             "CREATE INDEX IF NOT EXISTS idx_pedidos_numero ON pedidos(numero)",
             "CREATE INDEX IF NOT EXISTS idx_pedidos_data_entrada ON pedidos(data_entrada)",
             "CREATE INDEX IF NOT EXISTS idx_pedidos_data_entrega ON pedidos(data_entrega)",
             "CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos(cliente)",
+            "CREATE INDEX IF NOT EXISTS idx_pedidos_data_criacao ON pedidos(data_criacao)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_pedidos_numero ON pedidos(numero)",
         ]
         for index_ddl in indexes:
             await conn.execute(text(index_ddl))

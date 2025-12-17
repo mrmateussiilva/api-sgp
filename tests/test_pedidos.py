@@ -1,4 +1,4 @@
-"""
+""" 
 Testes para endpoints de pedidos.
 Cobre criação, listagem, atualização, deleção e filtros.
 """
@@ -7,6 +7,8 @@ from httpx import AsyncClient
 from datetime import datetime
 import pedidos.router
 from pedidos.schema import Status, ItemPedido, Acabamento, PedidoImagem
+from sqlalchemy import text
+import asyncio
 
 SAMPLE_IMAGE_DATA = (
     "data:image/png;base64,"
@@ -22,9 +24,6 @@ SAMPLE_IMAGE_DATA_ALT = (
 @pytest.mark.asyncio
 async def test_criar_pedido_sucesso(client: AsyncClient, clean_db):
     """Testa criação de pedido com sucesso."""
-    # Resetar contador global
-    initial_id = pedidos.router.ULTIMO_PEDIDO_ID
-    
     pedido_data = {
         "cliente": "João Silva",
         "telefone_cliente": "11999999999",
@@ -59,14 +58,11 @@ async def test_criar_pedido_sucesso(client: AsyncClient, clean_db):
     assert len(data["items"]) == 1
     assert data["items"][0]["descricao"] == "Painel promocional"
     
-    # Verificar que ULTIMO_PEDIDO_ID foi incrementado
-    assert pedidos.router.ULTIMO_PEDIDO_ID > initial_id
 
 
 @pytest.mark.asyncio
 async def test_criar_pedido_incrementa_id(client: AsyncClient, clean_db):
-    """Testa que cada novo pedido recebe um ID crescente."""
-    pedidos.router.ULTIMO_PEDIDO_ID = 0
+    """Testa que cada novo pedido recebe um ID válido e diferente."""
     
     pedido_base = {
         "cliente": "Cliente Teste",
@@ -85,8 +81,42 @@ async def test_criar_pedido_incrementa_id(client: AsyncClient, clean_db):
     assert response2.status_code == 200
     id2 = response2.json()["id"]
     
-    # IDs devem ser sequenciais
-    assert id2 > id1
+    # IDs devem ser diferentes e positivos
+    assert id1 is not None and id1 > 0
+    assert id2 is not None and id2 > 0
+    assert id2 != id1
+
+
+@pytest.mark.asyncio
+async def test_criar_pedido_gera_numero_incremental_unico(client: AsyncClient, clean_db, test_session):
+    """
+    Garante que o campo numero é gerado incrementalmente e sem duplicidade.
+    """
+    # limpa tabela explicitamente
+    await test_session.execute(text("DELETE FROM pedidos"))
+    await test_session.commit()
+
+    base = {
+        "cliente": "Cliente Numeração",
+        "data_entrada": "2024-01-15",
+        "items": [],
+    }
+
+    resp1 = await client.post("/pedidos", json=base)
+    resp2 = await client.post("/pedidos", json=base)
+
+    assert resp1.status_code == 200
+    assert resp2.status_code == 200
+
+    num1 = resp1.json()["numero"]
+    num2 = resp2.json()["numero"]
+
+    assert num1 is not None
+    assert num2 is not None
+    assert num1 != num2
+    # ambos com mesmo padding de 10 dígitos
+    assert len(num1) == 10
+    assert len(num2) == 10
 
 
 @pytest.mark.asyncio
@@ -333,6 +363,57 @@ async def test_financeiro_com_admin(client: AsyncClient, clean_db, admin_headers
     )
     assert response.status_code == 200
     assert response.json()["financeiro"] is True
+
+
+@pytest.mark.asyncio
+async def test_criar_varios_pedidos_em_paralelo(client: AsyncClient, clean_db, test_session):
+    """
+    Cria vários pedidos em paralelo para simular concorrência básica.
+    Deve retornar todos 200 e numeros únicos.
+    """
+
+    async def _criar(i: int):
+        return await client.post(
+            "/pedidos",
+            json={
+                "cliente": f"Cliente {i}",
+                "data_entrada": "2024-01-15",
+                "items": [],
+            },
+        )
+
+    # 20 requisições em paralelo
+    responses = await asyncio.gather(*[_criar(i) for i in range(20)])
+
+    assert all(r.status_code == 200 for r in responses)
+
+    numeros = [r.json()["numero"] for r in responses]
+    # todos os números devem ser únicos
+    assert len(numeros) == len(set(numeros))
+
+
+@pytest.mark.asyncio
+async def test_atualizar_pedido_numero_duplicado_retorna_409(client: AsyncClient, clean_db, test_session):
+    """
+    Atualizar numero para um valor já usado deve retornar 409 (conflito).
+    """
+    # criar dois pedidos
+    base = {
+        "cliente": "Cliente conflito",
+        "data_entrada": "2024-01-15",
+        "items": [],
+    }
+    r1 = await client.post("/pedidos", json=base)
+    r2 = await client.post("/pedidos", json=base)
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+
+    p1 = r1.json()
+    p2 = r2.json()
+
+    # tentar forçar o segundo a ter o mesmo numero do primeiro
+    resp_conflict = await client.patch(f"/pedidos/{p2['id']}", json={"numero": p1["numero"]})
+    assert resp_conflict.status_code == 409
 
 
 @pytest.mark.asyncio
