@@ -44,6 +44,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pedidos", tags=["Pedidos"])
 
+# Variável global para rastrear o último ID de pedido criado
+# Usada pelo sistema de notificações para long polling
+ULTIMO_PEDIDO_ID = 0
+
 STATE_SEPARATOR = "||"
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
@@ -732,6 +736,12 @@ async def criar_pedido(
                 db_pedido.numero,
                 db_pedido.cliente,
             )
+            
+            # Atualizar o último ID de pedido para o sistema de notificações
+            global ULTIMO_PEDIDO_ID
+            if db_pedido.id is not None:
+                ULTIMO_PEDIDO_ID = db_pedido.id
+            
             broadcast_order_event("order_created", response, None, user_info)
 
             return response
