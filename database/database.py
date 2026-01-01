@@ -16,12 +16,16 @@ def _build_async_database_url(url: str) -> str:
 DATABASE_URL = settings.DATABASE_URL
 ASYNC_DATABASE_URL = _build_async_database_url(DATABASE_URL)
 
-connect_args = {"timeout": 30} if ASYNC_DATABASE_URL.startswith("sqlite+") else {}
+connect_args = {"timeout": 60} if ASYNC_DATABASE_URL.startswith("sqlite+") else {}
 
 engine = create_async_engine(
     ASYNC_DATABASE_URL,
     connect_args=connect_args,
     pool_pre_ping=True,
+    pool_size=10,  # Número de conexões no pool
+    max_overflow=20,  # Conexões extras permitidas
+    pool_timeout=30,  # Timeout para obter conexão do pool
+    pool_recycle=3600,  # Reciclar conexões após 1 hora
 )
 
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -34,7 +38,7 @@ if engine.sync_engine.url.get_backend_name() == "sqlite":
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL;")
         cursor.execute("PRAGMA synchronous=NORMAL;")
-        cursor.execute("PRAGMA busy_timeout=5000;")
+        cursor.execute("PRAGMA busy_timeout=10000;")  # Aumentado para 10 segundos
         cursor.close()
 
 
