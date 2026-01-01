@@ -23,9 +23,11 @@ from vendedores.router import router as vendedores_router
 from users.router import router as users_router
 from notificacoes.router import router as notificacoes_router
 from fichas.router import router as fichas_router
+from relatorios.router import router as relatorios_router
 
 # Importar modelos para garantir que as tabelas sejam criadas
 from fichas.schema import Ficha, FichaTemplateModel  # noqa: F401
+from relatorios.schema import RelatorioTemplateModel  # noqa: F401
 
 setup_logging()
 
@@ -66,6 +68,7 @@ app.include_router(vendedores_router, prefix=settings.API_V1_STR)
 app.include_router(users_router, prefix=settings.API_V1_STR)
 app.include_router(notificacoes_router, prefix="/api")
 app.include_router(fichas_router, prefix=settings.API_V1_STR)
+app.include_router(relatorios_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root():
