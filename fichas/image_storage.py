@@ -159,7 +159,7 @@ def delete_ficha_image(relative_path: Optional[str]) -> bool:
     return False
 
 
-def save_base64_image(base64_str: str, ficha_id: int) -> str:
+async def save_base64_image(base64_str: str, ficha_id: int) -> str:
     """
     Salva uma imagem em base64 como arquivo físico.
     Versão robusta com validações de segurança.
@@ -234,10 +234,11 @@ def save_base64_image(base64_str: str, ficha_id: int) -> str:
     filename = f"{uuid4().hex}.{file_ext}"
     destination = ficha_dir / filename
     
-    # Salvar arquivo (compatível com Windows e Linux via pathlib)
+    # Salvar arquivo de forma assíncrona (compatível com Windows e Linux)
     try:
-        with destination.open("wb") as file_obj:
-            file_obj.write(binary_data)
+        import aiofiles
+        async with aiofiles.open(destination, "wb") as file_obj:
+            await file_obj.write(binary_data)
     except OSError as exc:
         raise ImageStorageError(f"Erro ao salvar arquivo: {exc}") from exc
     except Exception as exc:

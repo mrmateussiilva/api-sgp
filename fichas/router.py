@@ -309,7 +309,7 @@ async def criar_ficha(
         # Processar imagem se fornecida
         if imagem_base64:
             try:
-                imagem_path = save_base64_image(imagem_base64, db_ficha.id)
+                imagem_path = await save_base64_image(imagem_base64, db_ficha.id)
                 db_ficha.imagem_path = imagem_path
                 session.add(db_ficha)
             except ImageStorageError as exc:
@@ -355,7 +355,7 @@ async def atualizar_ficha(
                 delete_ficha_image(db_ficha.imagem_path)
             
             try:
-                imagem_path = save_base64_image(imagem_base64, ficha_id)
+                imagem_path = await save_base64_image(imagem_base64, ficha_id)
                 update_data["imagem_path"] = imagem_path
             except ImageStorageError as exc:
                 raise HTTPException(status_code=400, detail=f"Erro ao salvar imagem: {str(exc)}")
