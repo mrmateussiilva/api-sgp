@@ -37,7 +37,7 @@ async def delete_all_pedidos():
                     select(PedidoImagem).where(PedidoImagem.pedido_id == pedido.id)
                 )
                 for image in images_result.all():
-                    delete_media_file(image.path)
+                    await delete_media_file(image.path)
                     await session.delete(image)
                     total_images += 1
             
