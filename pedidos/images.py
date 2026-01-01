@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 from uuid import uuid4
 
+import aiofiles
 from config import settings
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -79,18 +80,23 @@ def _extension_for(mime_type: str, original_name: Optional[str] = None) -> str:
     return guessed
 
 
-def store_image_bytes(
+async def store_image_bytes(
     pedido_id: int,
     data: bytes,
     mime_type: str,
     original_filename: Optional[str] = None,
 ) -> Tuple[str, str, int]:
+    """
+    Armazena bytes de imagem de forma assíncrona.
+    Versão assíncrona para não bloquear o event loop.
+    """
     target_dir = _pedido_media_dir(pedido_id)
     extension = _extension_for(mime_type, original_filename)
     filename = f"{uuid4().hex}{extension}"
     destination = target_dir / filename
-    with destination.open("wb") as file_obj:
-        file_obj.write(data)
+    
+    async with aiofiles.open(destination, "wb") as file_obj:
+        await file_obj.write(data)
 
     relative_path = destination.relative_to(MEDIA_ROOT)
     return str(relative_path), filename, len(data)
@@ -104,7 +110,11 @@ def absolute_media_path(relative_path: str) -> Path:
     return absolute
 
 
-def delete_media_file(relative_path: Optional[str]) -> None:
+async def delete_media_file(relative_path: Optional[str]) -> None:
+    """
+    Deleta arquivo de mídia de forma assíncrona.
+    Versão assíncrona para não bloquear o event loop.
+    """
     if not relative_path:
         return
     try:
@@ -112,4 +122,11 @@ def delete_media_file(relative_path: Optional[str]) -> None:
     except ImageDecodingError:
         return
     if target.exists():
-        target.unlink(missing_ok=True)
+        # aiofiles não tem unlink assíncrono, mas podemos usar run_in_executor
+        # ou simplesmente usar unlink que é rápido
+        # Para Windows, manteremos síncrono mas em thread separada se necessário
+        try:
+            target.unlink(missing_ok=True)
+        except OSError:
+            # Ignorar erros de arquivo já deletado ou bloqueado
+            pass

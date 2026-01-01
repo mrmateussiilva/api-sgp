@@ -335,7 +335,7 @@ async def apply_image_changes(
                 session.add(image)
 
     async def _remove_image(record: PedidoImagem) -> None:
-        delete_media_file(record.path)
+        await delete_media_file(record.path)
         await session.delete(record)
 
     def _pop_matching(identifier: Optional[str], index: int) -> Optional[PedidoImagem]:
@@ -365,7 +365,7 @@ async def apply_image_changes(
         except ImageDecodingError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        relative_path, filename, size = store_image_bytes(
+        relative_path, filename, size = await store_image_bytes(
             pedido_id,
             binary_data,
             mime_type,
@@ -619,6 +619,7 @@ async def salvar_pedido_json(
         from pathlib import Path
         import json
         from datetime import datetime
+        import aiofiles
         
         # Obter caminho do projeto (mesmo padrão usado em images.py)
         PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -652,9 +653,10 @@ async def salvar_pedido_json(
                 if isinstance(item, dict) and 'imagem' in item:
                     print(f"[SAVE-JSON] Item {idx} tem imagem: {item.get('imagem')}")
         
-        # Salvar arquivo JSON
-        with filepath.open('w', encoding='utf-8') as f:
-            json.dump(json_data, f, indent=2, ensure_ascii=False)
+        # Salvar arquivo JSON de forma assíncrona
+        json_content = json.dumps(json_data, indent=2, ensure_ascii=False)
+        async with aiofiles.open(filepath, 'w', encoding='utf-8') as f:
+            await f.write(json_content)
         
         # Retornar caminho relativo
         relative_path = filepath.relative_to(MEDIA_ROOT)
@@ -1085,7 +1087,7 @@ async def deletar_pedido(
 
         images_result = await session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido_id))
         for image in images_result.all():
-            delete_media_file(image.path)
+            await delete_media_file(image.path)
             await session.delete(image)
         
         await session.delete(db_pedido)
@@ -1117,7 +1119,7 @@ async def deletar_todos_pedidos(
         for pedido in all_pedidos:
             images_result = await session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido.id))
             for image in images_result.all():
-                delete_media_file(image.path)
+                await delete_media_file(image.path)
                 await session.delete(image)
         
         # Deletar todos os pedidos (os itens serão deletados em cascata)
