@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FICHA DE SERVIÇO - RESUMO PRODUÇÃO</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    
+    .page {
+      width: 706.771653533px;
+      height: 347.716535428px;
+      background: white;
+      position: relative;
+      margin: 3.779527559px 7.559055118px 3.779527559px 7.559055118px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+    
+    .page-content {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    
+    
+    .field-imagem-item {
+      position: absolute;
+      left: 434.645669285px;
+      top: 0px;
+      width: 264.56692913px;
+      height: 245.669291335px;
+      font-size: 7pt;
+      font-weight: normal;
+      object-fit: contain;
+    }
+
+    .field-numero-os-1767332343548 {
+      position: absolute;
+      left: 0px;
+      top: 0px;
+      width: 188.97637795px;
+      height: 18.897637795px;
+      font-size: 11pt;
+      font-weight: normal;
+      
+    }
+
+    .field-cliente-1767332351460 {
+      position: absolute;
+      left: 207.874015745px;
+      top: 0px;
+      width: 207.874015745px;
+      height: 37.79527559px;
+      font-size: 11pt;
+      font-weight: normal;
+      
+    }
+
+    .field-data-entrada-1767332366093 {
+      position: absolute;
+      left: 0px;
+      top: 37.79527559px;
+      width: 113.38582677px;
+      height: 18.897637795px;
+      font-size: 11pt;
+      font-weight: normal;
+      
+    }
+
+    .field-observacao-1767332378534 {
+      position: absolute;
+      left: 0px;
+      top: 113.38582677px;
+      width: 151.18110236px;
+      height: 18.897637795px;
+      font-size: 11pt;
+      font-weight: normal;
+      
+    }
+    
+    /* Estilos para impressão */
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+      
+      .page {
+        margin: 0;
+        box-shadow: none;
+        page-break-after: always;
+      }
+    }
+    
+    /* Estilos para preview */
+    .field-label {
+      color: #666;
+      font-size: 0.8em;
+    }
+    
+    .field-value {
+      color: #000;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="page-content">
+    <div class="field-imagem-item">
+      <img src="{{imagem}}" alt="" style="width: 100%; height: 100%; object-fit: contain;" />
+    </div>
+    <div class="field-numero-os-1767332343548">{{numero}}</div>
+    <div class="field-cliente-1767332351460">{{cliente}}</div>
+    <div class="field-data-entrada-1767332366093">{{data_entrada|date}}</div>
+    <div class="field-observacao-1767332378534">{{observacao}}</div>
+    </div>
+  </div>
+  
+  <script>
+    // Exemplo de dados para preview (substituir com dados reais)
+    const sampleData = {
+      numero: '001',
+      cliente: 'Cliente Exemplo',
+      telefone_cliente: '(11) 99999-9999',
+      data_entrada: '2024-01-15',
+      data_entrega: '2024-01-20',
+      item_name: 'Produto Exemplo',
+      dimensoes: '100x200cm',
+      designer: 'Designer Exemplo',
+      vendedor: 'Vendedor Exemplo',
+      tecido: 'Tecido Exemplo',
+      quantity: 1,
+      unit_price: 100.00,
+      subtotal: 100.00,
+      valor_frete: 20.00,
+      total_value: 120.00,
+      observacao: 'Observações do pedido',
+      imagem: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2RkZCIvPjx0ZXh0IHg9IjUwIiB5PSI1MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE0IiBmaWxsPSIjOTk5IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+SW1hZ2VtPC90ZXh0Pjwvc3ZnPg=='
+    };
+    
+    // Função para formatar data
+    function formatDate(dateString) {
+      if (!dateString) return '';
+      const date = new Date(dateString);
+      return date.toLocaleDateString('pt-BR');
+    }
+    
+    // Função para formatar moeda
+    function formatCurrency(value) {
+      if (!value) return 'R$ 0,00';
+      const num = typeof value === 'string' ? parseFloat(value) : value;
+      return 'R$ ' + num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    
+    // Substituir placeholders com dados de exemplo
+    document.querySelectorAll('[class*="field-"]').forEach(field => {
+      const html = field.innerHTML;
+      let newHtml = html;
+      
+      // Substituir {{key}} por valores
+      newHtml = newHtml.replace(/{{([^}|]+)(?:|([^}]+))?}}/g, (match, key, format) => {
+        const value = sampleData[key.trim()] || '';
+        
+        if (format) {
+          const formatType = format.trim();
+          if (formatType === 'date') {
+            return formatDate(value);
+          } else if (formatType === 'currency') {
+            return formatCurrency(value);
+          }
+        }
+        
+        return value || match;
+      });
+      
+      field.innerHTML = newHtml;
+    });
+    
+    // Função para preencher com dados reais (chamar quando tiver dados do pedido)
+    window.fillTemplate = function(data) {
+      document.querySelectorAll('[class*="field-"]').forEach(field => {
+        const html = field.innerHTML;
+        let newHtml = html;
+        
+        newHtml = newHtml.replace(/{{([^}|]+)(?:|([^}]+))?}}/g, (match, key, format) => {
+          const value = data[key.trim()] || '';
+          
+          if (format) {
+            const formatType = format.trim();
+            if (formatType === 'date') {
+              return formatDate(value);
+            } else if (formatType === 'currency') {
+              return formatCurrency(value);
+            }
+          }
+          
+          return value || match;
+        });
+        
+        field.innerHTML = newHtml;
+      });
+    };
+  </script>
+</body>
+</html>
