@@ -5,9 +5,11 @@ Router para endpoints de Fichas.
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -37,6 +39,7 @@ from .schema import (
 )
 
 router = APIRouter(prefix="/fichas", tags=["Fichas"])
+logger = logging.getLogger(__name__)
 
 
 def _build_ficha_response(ficha: Ficha) -> FichaResponse:
@@ -424,8 +427,15 @@ async def obter_templates(
     session: AsyncSession = Depends(get_session),
 ) -> FichaTemplatesResponse:
     try:
-        return await _load_templates_response(session)
+        result = await _load_templates_response(session)
+        return result
+    except ValidationError as e:
+        # Erro de validação do Pydantic (geralmente retorna 422)
+        logger.error(f"Erro de validação ao retornar templates: {e}")
+        logger.error(f"Detalhes do erro: {e.errors()}")
+        raise HTTPException(status_code=422, detail=f"Erro de validação ao retornar templates: {str(e)}") from e
     except Exception as exc:
+        logger.exception(f"Erro ao carregar templates: {exc}")
         raise HTTPException(status_code=500, detail=f"Erro ao carregar templates: {exc}") from exc
 
 
