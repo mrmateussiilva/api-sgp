@@ -15,7 +15,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from base import get_session
 from config import settings
-from pedidos.router import require_admin
+from pedidos.router import require_admin, get_current_user_admin
 from .image_storage import (
     save_base64_image,
     delete_ficha_image,
@@ -556,6 +556,60 @@ async def obter_template_html(
     except HTTPException:
         raise
     except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao obter template HTML: {str(exc)}"
+        ) from exc
+
+
+@router.get("/templates/html/{template_type}/content")
+async def obter_template_html_content(
+    template_type: TemplateType,
+    is_admin: bool = Depends(get_current_user_admin),  # Apenas verificar autenticação, não requer admin
+):
+    """
+    Obtém o conteúdo do template HTML do servidor em formato JSON.
+    Requer apenas autenticação (não precisa ser admin).
+    Usado para impressão de fichas.
+    """
+    try:
+        from pathlib import Path
+        from fastapi.responses import JSONResponse
+        
+        # Obter diretório de mídia
+        media_root = Path(settings.MEDIA_ROOT)
+        templates_dir = media_root / "templates"
+        
+        # Determinar arquivo baseado no tipo
+        filename = f"template-{template_type}.html"
+        file_path = templates_dir / filename
+        
+        if not file_path.exists():
+            # Retornar null se não existir (não é erro, apenas não há template editado)
+            return JSONResponse(
+                status_code=200,
+                content={"html": None, "exists": False}
+            )
+        
+        # Ler conteúdo do arquivo
+        content = file_path.read_text(encoding="utf-8")
+        
+        # Se o conteúdo estiver vazio, tratar como se não existisse
+        if not content or not content.strip():
+            return JSONResponse(
+                status_code=200,
+                content={"html": None, "exists": False}
+            )
+        
+        return JSONResponse(
+            status_code=200,
+            content={"html": content, "exists": True}
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao obter template HTML: {str(exc)}"
+        ) from exc
         raise HTTPException(
             status_code=500,
             detail=f"Erro ao obter template HTML: {str(exc)}"
