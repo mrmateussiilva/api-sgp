@@ -207,31 +207,39 @@ def _build_template_response(
     template_type: TemplateType,
     template: Optional[FichaTemplateModel],
 ) -> FichaTemplateResponse:
-    if template:
-        fields = [
-            _ensure_field_defaults(TemplateFieldPayload.model_validate(field))
-            for field in template.fields or []
-        ]
-        data = FichaTemplateData(
-            title=template.title,
-            width=template.width,
-            height=template.height,
-            marginTop=template.marginTop,
-            marginBottom=template.marginBottom,
-            marginLeft=template.marginLeft,
-            marginRight=template.marginRight,
-            fields=fields,
-        )
-        updated_at = template.updatedAt
-    else:
-        data = _clone_default_template(DEFAULT_TEMPLATES[template_type])
-        updated_at = datetime.utcnow()
+    try:
+        if template:
+            fields = [
+                _ensure_field_defaults(TemplateFieldPayload.model_validate(field))
+                for field in template.fields or []
+            ]
+            data = FichaTemplateData(
+                title=template.title,
+                width=template.width,
+                height=template.height,
+                marginTop=template.marginTop,
+                marginBottom=template.marginBottom,
+                marginLeft=template.marginLeft,
+                marginRight=template.marginRight,
+                fields=fields,
+            )
+            updated_at = template.updatedAt
+        else:
+            data = _clone_default_template(DEFAULT_TEMPLATES[template_type])
+            updated_at = datetime.utcnow()
 
-    return FichaTemplateResponse(
-        templateType=template_type,
-        updatedAt=updated_at,
-        **data.model_dump(),
-    )
+        response = FichaTemplateResponse(
+            templateType=template_type,
+            updatedAt=updated_at,
+            **data.model_dump(),
+        )
+        return response
+    except Exception as e:
+        logger.error(f"Erro ao construir template response para {template_type}: {e}")
+        logger.error(f"Tipo do erro: {type(e).__name__}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
 
 
 async def _load_templates_response(
@@ -240,10 +248,21 @@ async def _load_templates_response(
     result = await session.exec(select(FichaTemplateModel))
     templates = {tpl.template_type.value: tpl for tpl in result.all()}
 
-    return FichaTemplatesResponse(
-        geral=_build_template_response("geral", templates.get("geral")),
-        resumo=_build_template_response("resumo", templates.get("resumo")),
-    )
+    try:
+        geral_response = _build_template_response("geral", templates.get("geral"))
+        resumo_response = _build_template_response("resumo", templates.get("resumo"))
+        
+        response = FichaTemplatesResponse(
+            geral=geral_response,
+            resumo=resumo_response,
+        )
+        return response
+    except Exception as e:
+        logger.error(f"Erro ao construir resposta de templates: {e}")
+        logger.error(f"Tipo do erro: {type(e).__name__}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
 
 
 async def _upsert_template(
@@ -332,6 +351,217 @@ async def criar_ficha(
         raise HTTPException(status_code=400, detail=f"Erro ao criar ficha: {str(e)}")
 
 
+@router.get("/", response_model=list[FichaResponse])
+async def listar_fichas(
+    session: AsyncSession = Depends(get_session),
+    skip: int = 0,
+    limit: int = 100
+):
+    """Lista todas as fichas."""
+    try:
+        from sqlmodel import select
+        
+        statement = select(Ficha).offset(skip).limit(limit).order_by(Ficha.data_criacao.desc())
+        result = await session.exec(statement)
+        fichas = result.all()
+        
+        return [_build_ficha_response(ficha) for ficha in fichas]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao listar fichas: {str(e)}")
+
+
+@router.get("/templates", response_model=FichaTemplatesResponse)
+async def obter_templates(
+    session: AsyncSession = Depends(get_session),
+) -> FichaTemplatesResponse:
+    try:
+        result = await _load_templates_response(session)
+        return result
+    except ValidationError as e:
+        # Erro de validação do Pydantic (geralmente retorna 422)
+        logger.error(f"Erro de validação ao retornar templates: {e}")
+        logger.error(f"Detalhes do erro: {e.errors()}")
+        import traceback
+        logger.error(f"Traceback completo: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=422, 
+            detail={
+                "message": "Erro de validação ao retornar templates",
+                "errors": e.errors(),
+                "error_str": str(e)
+            }
+        ) from e
+    except Exception as exc:
+        logger.exception(f"Erro ao carregar templates: {exc}")
+        import traceback
+        logger.error(f"Traceback completo: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Erro ao carregar templates: {exc}") from exc
+
+
+@router.put("/templates", response_model=FichaTemplatesResponse)
+async def salvar_templates(
+    payload: FichaTemplatesUpdate,
+    session: AsyncSession = Depends(get_session),
+    _admin: bool = Depends(require_admin),
+) -> FichaTemplatesResponse:
+    try:
+        await _upsert_template("geral", payload.geral, session)
+        await _upsert_template("resumo", payload.resumo, session)
+        await session.commit()
+        return await _load_templates_response(session)
+    except HTTPException:
+        await session.rollback()
+        raise
+    except Exception as exc:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail=f"Erro ao salvar templates: {exc}") from exc
+
+
+@router.put("/templates/html", response_model=dict)
+async def salvar_templates_html(
+    payload: FichaTemplatesHTMLUpdate,
+    _admin: bool = Depends(require_admin),
+) -> dict:
+    """
+    Salva os templates HTML no servidor.
+    Requer permissão de administrador.
+    """
+    try:
+        from pathlib import Path
+        
+        # Obter diretório de mídia
+        media_root = Path(settings.MEDIA_ROOT)
+        templates_dir = media_root / "templates"
+        
+        # Criar diretório se não existir
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        
+        saved_files = {}
+        
+        # Salvar template geral
+        if payload.geral:
+            geral_path = templates_dir / "template-geral.html"
+            geral_path.write_text(payload.geral, encoding="utf-8")
+            saved_files["geral"] = str(geral_path.relative_to(media_root))
+        
+        # Salvar template resumo
+        if payload.resumo:
+            resumo_path = templates_dir / "template-resumo.html"
+            resumo_path.write_text(payload.resumo, encoding="utf-8")
+            saved_files["resumo"] = str(resumo_path.relative_to(media_root))
+        
+        return {
+            "message": "Templates HTML salvos com sucesso",
+            "files": saved_files
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao salvar templates HTML: {str(exc)}"
+        ) from exc
+
+
+@router.get("/templates/html")
+async def listar_templates_html(
+    _admin: bool = Depends(require_admin),
+) -> dict:
+    """
+    Lista os templates HTML disponíveis no servidor.
+    Requer permissão de administrador.
+    """
+    try:
+        from pathlib import Path
+        
+        # Obter diretório de mídia
+        media_root = Path(settings.MEDIA_ROOT)
+        templates_dir = media_root / "templates"
+        
+        templates = {}
+        
+        # Verificar template geral
+        geral_path = templates_dir / "template-geral.html"
+        if geral_path.exists():
+            stat = geral_path.stat()
+            templates["geral"] = {
+                "exists": True,
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "path": str(geral_path.relative_to(media_root))
+            }
+        else:
+            templates["geral"] = {"exists": False}
+        
+        # Verificar template resumo
+        resumo_path = templates_dir / "template-resumo.html"
+        if resumo_path.exists():
+            stat = resumo_path.stat()
+            templates["resumo"] = {
+                "exists": True,
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "path": str(resumo_path.relative_to(media_root))
+            }
+        else:
+            templates["resumo"] = {"exists": False}
+        
+        return {
+            "templates": templates,
+            "templates_dir": str(templates_dir.relative_to(media_root))
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao listar templates HTML: {str(exc)}"
+        ) from exc
+
+
+@router.get("/templates/html/{template_type}")
+async def obter_template_html(
+    template_type: TemplateType,
+    _admin: bool = Depends(require_admin),
+):
+    """
+    Obtém o template HTML do servidor.
+    Requer permissão de administrador.
+    """
+    try:
+        from pathlib import Path
+        from fastapi.responses import Response
+        
+        # Obter diretório de mídia
+        media_root = Path(settings.MEDIA_ROOT)
+        templates_dir = media_root / "templates"
+        
+        # Determinar arquivo baseado no tipo
+        filename = f"template-{template_type}.html"
+        file_path = templates_dir / filename
+        
+        if not file_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Template HTML '{template_type}' não encontrado"
+            )
+        
+        # Ler conteúdo do arquivo
+        content = file_path.read_text(encoding="utf-8")
+        
+        return Response(
+            content=content,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"'
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao obter template HTML: {str(exc)}"
+        ) from exc
+
+
 @router.patch("/{ficha_id}", response_model=FichaResponse)
 async def atualizar_ficha(
     ficha_id: int,
@@ -400,206 +630,6 @@ async def obter_ficha(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao obter ficha: {str(e)}")
-
-
-@router.get("/", response_model=list[FichaResponse])
-async def listar_fichas(
-    session: AsyncSession = Depends(get_session),
-    skip: int = 0,
-    limit: int = 100
-):
-    """Lista todas as fichas."""
-    try:
-        from sqlmodel import select
-        
-        statement = select(Ficha).offset(skip).limit(limit).order_by(Ficha.data_criacao.desc())
-        result = await session.exec(statement)
-        fichas = result.all()
-        
-        return [_build_ficha_response(ficha) for ficha in fichas]
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao listar fichas: {str(e)}")
-
-
-@router.get("/templates", response_model=FichaTemplatesResponse)
-async def obter_templates(
-    session: AsyncSession = Depends(get_session),
-) -> FichaTemplatesResponse:
-    try:
-        result = await _load_templates_response(session)
-        return result
-    except ValidationError as e:
-        # Erro de validação do Pydantic (geralmente retorna 422)
-        logger.error(f"Erro de validação ao retornar templates: {e}")
-        logger.error(f"Detalhes do erro: {e.errors()}")
-        raise HTTPException(status_code=422, detail=f"Erro de validação ao retornar templates: {str(e)}") from e
-    except Exception as exc:
-        logger.exception(f"Erro ao carregar templates: {exc}")
-        raise HTTPException(status_code=500, detail=f"Erro ao carregar templates: {exc}") from exc
-
-
-@router.put("/templates", response_model=FichaTemplatesResponse)
-async def salvar_templates(
-    payload: FichaTemplatesUpdate,
-    session: AsyncSession = Depends(get_session),
-    _admin: bool = Depends(require_admin),
-) -> FichaTemplatesResponse:
-    try:
-        await _upsert_template("geral", payload.geral, session)
-        await _upsert_template("resumo", payload.resumo, session)
-        await session.commit()
-        return await _load_templates_response(session)
-    except HTTPException:
-        await session.rollback()
-        raise
-    except Exception as exc:
-        await session.rollback()
-        raise HTTPException(status_code=400, detail=f"Erro ao salvar templates: {exc}") from exc
-
-
-@router.put("/templates/html", response_model=dict)
-async def salvar_templates_html(
-    payload: FichaTemplatesHTMLUpdate,
-    _admin: bool = Depends(require_admin),
-) -> dict:
-    """
-    Salva os templates HTML no servidor.
-    Requer permissão de administrador.
-    """
-    try:
-        from pathlib import Path
-        
-        # Obter diretório de mídia
-        media_root = Path(settings.MEDIA_ROOT)
-        templates_dir = media_root / "templates"
-        
-        # Criar diretório se não existir
-        templates_dir.mkdir(parents=True, exist_ok=True)
-        
-        saved_files = {}
-        
-        # Salvar template geral
-        if payload.geral:
-            geral_path = templates_dir / "template-geral.html"
-            geral_path.write_text(payload.geral, encoding="utf-8")
-            saved_files["geral"] = str(geral_path.relative_to(media_root))
-        
-        # Salvar template resumo
-        if payload.resumo:
-            resumo_path = templates_dir / "template-resumo.html"
-            resumo_path.write_text(payload.resumo, encoding="utf-8")
-            saved_files["resumo"] = str(resumo_path.relative_to(media_root))
-        
-        return {
-            "message": "Templates HTML salvos com sucesso",
-            "files": saved_files
-        }
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao salvar templates HTML: {str(exc)}"
-        ) from exc
-
-
-@router.get("/templates/html/{template_type}")
-async def obter_template_html(
-    template_type: TemplateType,
-    _admin: bool = Depends(require_admin),
-):
-    """
-    Obtém o template HTML do servidor.
-    Requer permissão de administrador.
-    """
-    try:
-        from pathlib import Path
-        from fastapi.responses import Response
-        
-        # Obter diretório de mídia
-        media_root = Path(settings.MEDIA_ROOT)
-        templates_dir = media_root / "templates"
-        
-        # Determinar arquivo baseado no tipo
-        filename = f"template-{template_type}.html"
-        file_path = templates_dir / filename
-        
-        if not file_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Template HTML '{template_type}' não encontrado"
-            )
-        
-        # Ler conteúdo do arquivo
-        content = file_path.read_text(encoding="utf-8")
-        
-        return Response(
-            content=content,
-            media_type="text/html",
-            headers={
-                "Content-Disposition": f'inline; filename="{filename}"'
-            }
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao obter template HTML: {str(exc)}"
-        ) from exc
-
-
-@router.get("/templates/html")
-async def listar_templates_html(
-    _admin: bool = Depends(require_admin),
-) -> dict:
-    """
-    Lista os templates HTML disponíveis no servidor.
-    Requer permissão de administrador.
-    """
-    try:
-        from pathlib import Path
-        
-        # Obter diretório de mídia
-        media_root = Path(settings.MEDIA_ROOT)
-        templates_dir = media_root / "templates"
-        
-        templates = {}
-        
-        # Verificar template geral
-        geral_path = templates_dir / "template-geral.html"
-        if geral_path.exists():
-            stat = geral_path.stat()
-            templates["geral"] = {
-                "exists": True,
-                "size": stat.st_size,
-                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                "path": str(geral_path.relative_to(media_root))
-            }
-        else:
-            templates["geral"] = {"exists": False}
-        
-        # Verificar template resumo
-        resumo_path = templates_dir / "template-resumo.html"
-        if resumo_path.exists():
-            stat = resumo_path.stat()
-            templates["resumo"] = {
-                "exists": True,
-                "size": stat.st_size,
-                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                "path": str(resumo_path.relative_to(media_root))
-            }
-        else:
-            templates["resumo"] = {"exists": False}
-        
-        return {
-            "templates": templates,
-            "templates_dir": str(templates_dir.relative_to(media_root))
-        }
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao listar templates HTML: {str(exc)}"
-        ) from exc
 
 
 @router.delete("/{ficha_id}")
