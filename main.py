@@ -74,7 +74,7 @@ app.include_router(relatorios_router, prefix=settings.API_V1_STR)
 async def root():
     return {
         "message": "API Sistema de Fichas",
-        "version": settings.VERSION,
+        "version": "1.0.1",
         "docs": "/docs"
     }
 
