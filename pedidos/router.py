@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, List, Optional
 import logging
+import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlmodel import select
@@ -101,6 +102,9 @@ async def ensure_order_indexes() -> None:
         "CREATE INDEX IF NOT EXISTS idx_pedidos_data_criacao ON pedidos(data_criacao)",
         # índice único para evitar duplicidade silenciosa de numero sob concorrência
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_pedidos_numero ON pedidos(numero)",
+        # Índices compostos para queries frequentes (melhoram performance de leitura)
+        "CREATE INDEX IF NOT EXISTS idx_pedidos_status_data ON pedidos(status, data_entrada)",
+        "CREATE INDEX IF NOT EXISTS idx_pedidos_status_criacao ON pedidos(status, data_criacao)",
     )
 
     def _apply_indexes(sync_conn):
@@ -766,6 +770,7 @@ async def criar_pedido(
                         detail="Não foi possível gerar número único para o pedido. Tente novamente.",
                     ) from exc
                 logger.warning("Colisão de numero de pedido detectada, tentando novamente (tentativa %s)", attempt)
+                await asyncio.sleep(0.1 * attempt)  # Backoff exponencial: 0.1s, 0.2s, 0.3s, 0.4s, 0.5s
                 continue
             logger.error("Erro de integridade ao criar pedido: %s", exc)
             raise HTTPException(status_code=400, detail=f"Erro de integridade ao criar pedido: {str(exc)}") from exc
@@ -780,6 +785,7 @@ async def criar_pedido(
                         detail="Banco de dados temporariamente ocupado. Tente novamente em instantes.",
                     ) from exc
                 logger.warning("database is locked ao criar pedido, tentando novamente (tentativa %s)", attempt)
+                await asyncio.sleep(0.1 * attempt)  # Backoff exponencial: 0.1s, 0.2s, 0.3s, 0.4s, 0.5s
                 continue
             logger.error("Erro de banco ao criar pedido: %s", exc)
             raise HTTPException(status_code=400, detail=f"Erro de banco ao criar pedido: {str(exc)}") from exc
@@ -899,176 +905,192 @@ async def atualizar_pedido(
     """
     Atualiza um pedido existente. Aceita atualizações parciais.
     Requer permissão de administrador para alterar campo 'financeiro'.
-    Resistente a pequenas condições de corrida no campo numero.
+    Resistente a concorrência com retry logic e backoff exponencial.
     """
-    try:
-        db_pedido = await session.get(Pedido, pedido_id)
-        if not db_pedido:
-            raise HTTPException(status_code=404, detail="Pedido não encontrado")
-        
-        # 🔥 CAPTURAR VALORES ANTES DA ATUALIZAÇÃO para detectar mudanças reais
-        status_fields_before = {
-            "status": db_pedido.status,
-            "financeiro": db_pedido.financeiro,
-            "conferencia": db_pedido.conferencia,
-            "sublimacao": db_pedido.sublimacao,
-            "costura": db_pedido.costura,
-            "expedicao": db_pedido.expedicao,
-            "pronto": getattr(db_pedido, 'pronto', False),
-        }
-        
-        # Preparar dados para atualização (exclude_unset=True garante que apenas campos enviados sejam processados)
-        update_data = pedido_update.model_dump(exclude_unset=True)
-        
-        # Verificação de permissão: SOMENTE o campo "financeiro" exige admin
-        # Todos os outros campos (expedição, itens, observação, etc.) podem ser editados por qualquer usuário
-        if 'financeiro' in update_data and not is_admin:
-            raise HTTPException(
-                status_code=403,
-                detail="Somente administradores podem alterar o status financeiro."
-            )
-        
-        # Converter items para JSON string se existirem
-        items_payload_for_images: Optional[List[dict[str, Any]]] = None
-        pending_uploads: List[PendingImageUpload] = []
-        pending_removals: List[PendingImageRemoval] = []
-        if 'items' in update_data and update_data['items'] is not None:
-            items_payload_for_images, pending_uploads, pending_removals = prepare_items_for_storage(
-                update_data['items'],
-                allow_removal=True
-            )
-            update_data['items'] = items_to_json_string(items_payload_for_images)
-        
-        if 'data_entrega' in update_data and not update_data['data_entrega']:
-            # Garantir que data_entrega nunca fique vazia devido à restrição do banco
-            update_data['data_entrega'] = db_pedido.data_entrada
-
-        if 'forma_envio_id' in update_data and update_data['forma_envio_id'] is None:
-            update_data['forma_envio_id'] = db_pedido.forma_envio_id or 0
-
-        if 'numero' in update_data and not update_data['numero']:
-            # Se o pedido já tem um número, mantê-lo; caso contrário, gerar um novo incremental
-            if db_pedido.numero:
-                update_data['numero'] = db_pedido.numero
-            else:
-                update_data['numero'] = await get_next_order_number(session)
-
-        estado_update = (update_data.pop('estado_cliente', None) or '').strip()
-        if 'cidade_cliente' in update_data or estado_update:
-            cidade_atual, estado_atual = decode_city_state(db_pedido.cidade_cliente)
-            nova_cidade = update_data.get('cidade_cliente', cidade_atual) or ''
-            nova_cidade, _ = decode_city_state(nova_cidade)
-            estado_final = estado_update if estado_update else estado_atual
-            update_data['cidade_cliente'] = encode_city_state(nova_cidade, estado_final)
-
-        # Atualizar timestamp
-        update_data['ultima_atualizacao'] = datetime.utcnow()
-        
-        # Aplicar atualizações
-        for field, value in update_data.items():
-            setattr(db_pedido, field, value)
-        
-        session.add(db_pedido)
-        if items_payload_for_images is not None:
-            if await apply_image_changes(
-                session,
-                db_pedido.id,
-                pending_uploads,
-                pending_removals,
-                items_payload_for_images,
-            ):
-                db_pedido.items = items_to_json_string(items_payload_for_images)
-
+    MAX_RETRIES = 5
+    
+    # Preparar dados uma vez (fora do loop de retry)
+    update_data = pedido_update.model_dump(exclude_unset=True)
+    
+    # Verificação de permissão (fora do loop)
+    if 'financeiro' in update_data and not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores podem alterar o status financeiro."
+        )
+    
+    # Preparar items (fora do loop)
+    items_payload_for_images: Optional[List[dict[str, Any]]] = None
+    pending_uploads: List[PendingImageUpload] = []
+    pending_removals: List[PendingImageRemoval] = []
+    if 'items' in update_data and update_data['items'] is not None:
+        items_payload_for_images, pending_uploads, pending_removals = prepare_items_for_storage(
+            update_data['items'],
+            allow_removal=True
+        )
+        update_data['items'] = items_to_json_string(items_payload_for_images)
+    
+    for attempt in range(1, MAX_RETRIES + 1):
         try:
+            # Re-buscar o pedido a cada tentativa (pode ter mudado)
+            db_pedido = await session.get(Pedido, pedido_id)
+            if not db_pedido:
+                raise HTTPException(status_code=404, detail="Pedido não encontrado")
+            
+            # 🔥 CAPTURAR VALORES ANTES DA ATUALIZAÇÃO para detectar mudanças reais
+            status_fields_before = {
+                "status": db_pedido.status,
+                "financeiro": db_pedido.financeiro,
+                "conferencia": db_pedido.conferencia,
+                "sublimacao": db_pedido.sublimacao,
+                "costura": db_pedido.costura,
+                "expedicao": db_pedido.expedicao,
+                "pronto": getattr(db_pedido, 'pronto', False),
+            }
+            
+            # Preparar update_data local (pode precisar ajustes baseados no estado atual)
+            local_update_data = dict(update_data)
+            
+            if 'data_entrega' in local_update_data and not local_update_data['data_entrega']:
+                local_update_data['data_entrega'] = db_pedido.data_entrada
+
+            if 'forma_envio_id' in local_update_data and local_update_data['forma_envio_id'] is None:
+                local_update_data['forma_envio_id'] = db_pedido.forma_envio_id or 0
+
+            if 'numero' in local_update_data and not local_update_data['numero']:
+                if db_pedido.numero:
+                    local_update_data['numero'] = db_pedido.numero
+                else:
+                    local_update_data['numero'] = await get_next_order_number(session)
+
+            estado_update = (local_update_data.pop('estado_cliente', None) or '').strip()
+            if 'cidade_cliente' in local_update_data or estado_update:
+                cidade_atual, estado_atual = decode_city_state(db_pedido.cidade_cliente)
+                nova_cidade = local_update_data.get('cidade_cliente', cidade_atual) or ''
+                nova_cidade, _ = decode_city_state(nova_cidade)
+                estado_final = estado_update if estado_update else estado_atual
+                local_update_data['cidade_cliente'] = encode_city_state(nova_cidade, estado_final)
+
+            # Atualizar timestamp
+            local_update_data['ultima_atualizacao'] = datetime.utcnow()
+            
+            # Aplicar atualizações
+            for field, value in local_update_data.items():
+                setattr(db_pedido, field, value)
+            
+            session.add(db_pedido)
+            if items_payload_for_images is not None:
+                if await apply_image_changes(
+                    session,
+                    db_pedido.id,
+                    pending_uploads,
+                    pending_removals,
+                    items_payload_for_images,
+                ):
+                    db_pedido.items = items_to_json_string(items_payload_for_images)
+
             await session.commit()
+            await session.refresh(db_pedido)
+            
+            # 🔥 CAPTURAR VALORES DEPOIS DA ATUALIZAÇÃO
+            status_fields_after = {
+                "status": db_pedido.status,
+                "financeiro": db_pedido.financeiro,
+                "conferencia": db_pedido.conferencia,
+                "sublimacao": db_pedido.sublimacao,
+                "costura": db_pedido.costura,
+                "expedicao": db_pedido.expedicao,
+                "pronto": getattr(db_pedido, 'pronto', False),
+            }
+            
+            # 🔥 DETECTAR MUDANÇAS REAIS DE STATUS (comparar antes vs depois)
+            status_changed = any(
+                status_fields_before.get(key) != status_fields_after.get(key)
+                for key in status_fields_before.keys()
+            )
+            
+            if __debug__ and status_changed:
+                changed_fields = [
+                    key for key in status_fields_before.keys()
+                    if status_fields_before.get(key) != status_fields_after.get(key)
+                ]
+                print(f"[Pedidos] Mudança de status detectada no pedido {pedido_id}: {changed_fields}")
+                print(f"[Pedidos] Antes: {status_fields_before}")
+                print(f"[Pedidos] Depois: {status_fields_after}")
+            
+            # Converter de volta para response
+            items = json_string_to_items(db_pedido.items or "[]")
+            await populate_items_with_image_paths(session, db_pedido.id, items)
+            
+            pedido_dict = db_pedido.model_dump()
+            cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
+            pedido_dict['cidade_cliente'] = cidade
+            pedido_dict['estado_cliente'] = estado
+            pedido_dict['items'] = items
+            response = PedidoResponse(**pedido_dict)
+            
+            # Obter informações do usuário atual para incluir no broadcast
+            user_info = await get_current_user_from_token(token, session)
+            
+            # 🔥 SEMPRE ENVIAR order_updated quando há qualquer atualização
+            if __debug__:
+                logger.debug("[Pedidos] Enviando broadcast 'order_updated' para pedido %s", pedido_id)
+            broadcast_order_event("order_updated", response, None, user_info)
+            
+            # 🔥 ENVIAR order_status_updated APENAS quando há mudança real de status
+            if status_changed:
+                if __debug__:
+                    logger.debug("[Pedidos] Enviando broadcast 'order_status_updated' para pedido %s", pedido_id)
+                broadcast_order_event("order_status_updated", response, None, user_info)
+            
+            return response
+            
+        except HTTPException:
+            await session.rollback()
+            raise
         except IntegrityError as exc:
             await session.rollback()
             msg = str(exc.orig).lower() if getattr(exc, "orig", None) else str(exc).lower()
             if "uq_pedidos_numero" in msg or "unique" in msg or "numero" in msg:
+                if attempt >= MAX_RETRIES:
+                    logger.error(
+                        "Conflito de numero ao atualizar pedido id=%s após %s tentativas: %s",
+                        pedido_id,
+                        attempt,
+                        exc,
+                    )
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Já existe um pedido com este numero.",
+                    ) from exc
                 logger.warning(
-                    "Conflito de numero ao atualizar pedido id=%s numero=%s: %s",
+                    "Conflito de numero ao atualizar pedido id=%s, tentando novamente (tentativa %s)",
                     pedido_id,
-                    update_data.get("numero"),
-                    exc,
+                    attempt,
                 )
-                raise HTTPException(
-                    status_code=409,
-                    detail="Já existe um pedido com este numero.",
-                ) from exc
+                await asyncio.sleep(0.1 * attempt)  # Backoff exponencial
+                continue
             logger.error("Erro de integridade ao atualizar pedido %s: %s", pedido_id, exc)
             raise HTTPException(status_code=400, detail=f"Erro de integridade ao atualizar pedido: {str(exc)}") from exc
         except OperationalError as exc:
             await session.rollback()
             msg = str(exc.orig).lower() if getattr(exc, "orig", None) else str(exc).lower()
             if "database is locked" in msg:
-                logger.warning("database is locked ao atualizar pedido id=%s: %s", pedido_id, exc)
-                raise HTTPException(
-                    status_code=503,
-                    detail="Banco de dados temporariamente ocupado. Tente novamente em instantes.",
-                ) from exc
+                if attempt >= MAX_RETRIES:
+                    logger.error("Banco de dados locked ao atualizar pedido id=%s após %s tentativas: %s", pedido_id, attempt, exc)
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Banco de dados temporariamente ocupado. Tente novamente em instantes.",
+                    ) from exc
+                logger.warning("database is locked ao atualizar pedido id=%s, tentando novamente (tentativa %s)", pedido_id, attempt)
+                await asyncio.sleep(0.1 * attempt)  # Backoff exponencial
+                continue
             logger.error("Erro de banco ao atualizar pedido %s: %s", pedido_id, exc)
             raise HTTPException(status_code=400, detail=f"Erro de banco ao atualizar pedido: {str(exc)}") from exc
-
-        await session.refresh(db_pedido)
-        
-        # 🔥 CAPTURAR VALORES DEPOIS DA ATUALIZAÇÃO
-        status_fields_after = {
-            "status": db_pedido.status,
-            "financeiro": db_pedido.financeiro,
-            "conferencia": db_pedido.conferencia,
-            "sublimacao": db_pedido.sublimacao,
-            "costura": db_pedido.costura,
-            "expedicao": db_pedido.expedicao,
-            "pronto": getattr(db_pedido, 'pronto', False),
-        }
-        
-        # 🔥 DETECTAR MUDANÇAS REAIS DE STATUS (comparar antes vs depois)
-        status_changed = any(
-            status_fields_before.get(key) != status_fields_after.get(key)
-            for key in status_fields_before.keys()
-        )
-        
-        if __debug__ and status_changed:
-            changed_fields = [
-                key for key in status_fields_before.keys()
-                if status_fields_before.get(key) != status_fields_after.get(key)
-            ]
-            print(f"[Pedidos] Mudança de status detectada no pedido {pedido_id}: {changed_fields}")
-            print(f"[Pedidos] Antes: {status_fields_before}")
-            print(f"[Pedidos] Depois: {status_fields_after}")
-        
-        # Converter de volta para response
-        items = json_string_to_items(db_pedido.items or "[]")
-        await populate_items_with_image_paths(session, db_pedido.id, items)
-        
-        pedido_dict = db_pedido.model_dump()
-        cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
-        pedido_dict['cidade_cliente'] = cidade
-        pedido_dict['estado_cliente'] = estado
-        pedido_dict['items'] = items
-        response = PedidoResponse(**pedido_dict)
-        
-        # Obter informações do usuário atual para incluir no broadcast
-        user_info = await get_current_user_from_token(token, session)
-        
-        # 🔥 SEMPRE ENVIAR order_updated quando há qualquer atualização
-        if __debug__:
-            logger.debug("[Pedidos] Enviando broadcast 'order_updated' para pedido %s", pedido_id)
-        broadcast_order_event("order_updated", response, None, user_info)
-        
-        # 🔥 ENVIAR order_status_updated APENAS quando há mudança real de status
-        if status_changed:
-            if __debug__:
-                logger.debug("[Pedidos] Enviando broadcast 'order_status_updated' para pedido %s", pedido_id)
-            broadcast_order_event("order_status_updated", response, None, user_info)
-        
-        return response
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        await session.rollback()
-        raise HTTPException(status_code=400, detail=f"Erro ao atualizar pedido: {str(e)}")
+        except Exception as exc:
+            await session.rollback()
+            logger.exception("Erro inesperado ao atualizar pedido %s: %s", pedido_id, exc)
+            raise HTTPException(status_code=400, detail=f"Erro ao atualizar pedido: {str(exc)}") from exc
 
 @router.delete("/{pedido_id}")
 async def deletar_pedido(

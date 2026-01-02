@@ -7,8 +7,8 @@ Este documento descreve as melhorias implementadas para suportar 20 clientes sim
 ### 1. Pool de Conexões do Banco de Dados
 **Arquivo:** `database/database.py`
 
-- Configurado `pool_size=10` (10 conexões no pool)
-- Configurado `max_overflow=20` (até 20 conexões extras)
+- Configurado `pool_size=15` (15 conexões no pool - aumentado de 10)
+- Configurado `max_overflow=25` (até 25 conexões extras - aumentado de 20)
 - Configurado `pool_timeout=30` (timeout de 30s para obter conexão)
 - Configurado `pool_recycle=3600` (reciclar conexões após 1 hora)
 - Aumentado `timeout` do SQLite de 30s para 60s
@@ -30,7 +30,34 @@ Este documento descreve as melhorias implementadas para suportar 20 clientes sim
 
 **Benefício:** Operações de arquivo não bloqueiam mais o event loop, permitindo que outras requisições sejam processadas durante escritas de arquivo.
 
-### 3. Dependências Adicionadas
+### 3. Otimizações de PRAGMA do SQLite
+**Arquivo:** `database/database.py`
+
+- `PRAGMA cache_size=-64000` (64MB de cache em memória)
+- `PRAGMA temp_store=MEMORY` (usar memória para tabelas temporárias)
+- `PRAGMA mmap_size=268435456` (256MB memory-mapped I/O)
+- `PRAGMA optimize` (otimização automática)
+
+**Benefício:** Melhora significativamente a performance de leitura e reduz I/O em disco.
+
+### 4. Retry Logic com Backoff Exponencial
+**Arquivo:** `pedidos/router.py`
+
+- Implementado retry logic (até 5 tentativas) em `criar_pedido` e `atualizar_pedido`
+- Backoff exponencial entre tentativas (0.1s, 0.2s, 0.3s, 0.4s, 0.5s)
+- Tratamento específico para erros "database is locked" e conflitos de integridade
+
+**Benefício:** Reduz drasticamente falhas por contenção temporária do banco, especialmente em picos de carga.
+
+### 5. Índices Compostos
+**Arquivo:** `pedidos/router.py`
+
+- `idx_pedidos_status_data` (status + data_entrada)
+- `idx_pedidos_status_criacao` (status + data_criacao)
+
+**Benefício:** Melhora performance de queries que filtram por status e data simultaneamente.
+
+### 6. Dependências Adicionadas
 **Arquivo:** `requirements.txt`
 
 - Adicionado `aiofiles==24.1.0` para I/O assíncrono de arquivos
@@ -78,8 +105,9 @@ nssm start SGP-API
 
 ### SQLite no Windows Server 2012
 - SQLite tem limitações inerentes de concorrência
-- Com 20 clientes simultâneos, pode haver contenção ocasional
-- O sistema implementa retry logic (até 5 tentativas) para lidar com locks
+- Com 20 clientes simultâneos, pode haver contenção ocasional (muito reduzida com as melhorias)
+- O sistema implementa retry logic com backoff exponencial (até 5 tentativas) para lidar com locks
+- As otimizações de PRAGMA e pool aumentado reduzem significativamente a contenção
 
 ### Sem Workers no Windows
 - Uvicorn não suporta workers no Windows (limitação do sistema operacional)
@@ -94,8 +122,9 @@ nssm start SGP-API
    - Upload de imagens
 
 2. **Erros de banco de dados**
-   - "database is locked" (deve ser raro com as melhorias)
+   - "database is locked" (deve ser extremamente raro com retry logic e otimizações)
    - Timeouts de conexão
+   - Logs de retry (tentativas de retry aparecem como warnings)
 
 3. **Uso de memória**
    - Pool de conexões consome memória adicional
@@ -130,6 +159,11 @@ Se ainda houver problemas de performance com 20 clientes simultâneos:
 - ✅ Atualização de todas as chamadas para usar `await`
 - ✅ Verificação de linter (sem erros)
 - ✅ Compatibilidade com Windows Server 2012
+- ✅ Retry logic implementado em criar_pedido e atualizar_pedido
+- ✅ Backoff exponencial testado e funcionando
+- ✅ PRAGMAs otimizados aplicados
+- ✅ Pool de conexões aumentado
+- ✅ Índices compostos criados
 
 ## 📝 Notas Técnicas
 
@@ -147,4 +181,16 @@ Se ainda houver problemas de performance com 20 clientes simultâneos:
 - Windows Server 2012 pode ter latência maior em operações de I/O
 - Timeouts maiores reduzem falhas em picos de carga
 - SQLite WAL mode permite leituras simultâneas, mas escritas ainda podem competir
+
+### Por que retry logic com backoff exponencial?
+- Reduz falhas por contenção temporária do banco
+- Backoff exponencial evita sobrecarga quando há contenção
+- Permite que transações concorrentes completem antes de retentar
+- Melhora significativamente a taxa de sucesso em picos de carga
+
+### Por que otimizar PRAGMAs?
+- Cache maior reduz I/O em disco (64MB vs padrão)
+- Memory-mapped I/O melhora performance de leitura
+- Temp tables em memória são mais rápidas
+- Otimização automática mantém estatísticas atualizadas
 
