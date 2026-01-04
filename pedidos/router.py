@@ -616,6 +616,34 @@ async def obter_imagem(imagem_id: int, session: AsyncSession = Depends(get_sessi
     )
 
 
+@router.get("/media/{file_path:path}")
+async def servir_arquivo_media(file_path: str):
+    """
+    Serve arquivos do diretório media.
+    Permite acesso a imagens salvas em pedidos/tmp/ ou pedidos/{id}/
+    Exemplo: /pedidos/media/pedidos/tmp/xxx.jpg
+    """
+    try:
+        absolute_path = absolute_media_path(file_path)
+    except ImageDecodingError:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    
+    if not absolute_path.exists():
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    
+    # Determinar content-type baseado na extensão
+    import mimetypes
+    mime_type, _ = mimetypes.guess_type(str(absolute_path))
+    if not mime_type:
+        mime_type = "application/octet-stream"
+    
+    return FileResponse(
+        absolute_path,
+        media_type=mime_type,
+        filename=absolute_path.name,
+    )
+
+
 @router.post("/order-items/upload-image")
 async def upload_image_item(
     image: UploadFile = File(...),
