@@ -20,6 +20,7 @@ from admin.router import router as admin_router
 from materiais.router import router as materiais_router
 from designers.router import router as designers_router
 from vendedores.router import router as vendedores_router
+from producoes.router import router as producoes_router
 from users.router import router as users_router
 from notificacoes.router import router as notificacoes_router
 from fichas.router import router as fichas_router
@@ -28,6 +29,7 @@ from relatorios.router import router as relatorios_router
 # Importar modelos para garantir que as tabelas sejam criadas
 from fichas.schema import Ficha, FichaTemplateModel  # noqa: F401
 from relatorios.schema import RelatorioTemplateModel  # noqa: F401
+from producoes.schema import Producao  # noqa: F401
 
 setup_logging()
 
@@ -65,6 +67,7 @@ app.include_router(admin_router, prefix=settings.API_V1_STR)
 app.include_router(materiais_router, prefix=settings.API_V1_STR)
 app.include_router(designers_router, prefix=settings.API_V1_STR)
 app.include_router(vendedores_router, prefix=settings.API_V1_STR)
+app.include_router(producoes_router, prefix=settings.API_V1_STR)
 app.include_router(users_router, prefix=settings.API_V1_STR)
 app.include_router(notificacoes_router, prefix="/api")
 app.include_router(fichas_router, prefix=settings.API_V1_STR)
