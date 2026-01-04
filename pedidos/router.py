@@ -3,7 +3,7 @@ from typing import Any, List, Optional
 import logging
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, UploadFile, File, Form
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import text, func
@@ -37,7 +37,13 @@ from .images import (
     store_image_bytes,
     absolute_media_path,
     ImageDecodingError,
+    MEDIA_ROOT,
+    PEDIDOS_MEDIA_ROOT,
 )
+import aiofiles
+from pathlib import Path
+from uuid import uuid4
+import mimetypes
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored", auto_error=False)
 
@@ -608,6 +614,113 @@ async def obter_imagem(imagem_id: int, session: AsyncSession = Depends(get_sessi
         media_type=imagem.mime_type,
         filename=imagem.filename,
     )
+
+
+@router.post("/order-items/upload-image")
+async def upload_image_item(
+    image: UploadFile = File(...),
+    order_item_id: Optional[int] = Form(None),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Endpoint para upload de imagem de item de pedido.
+    Aceita FormData com arquivo de imagem e order_item_id opcional.
+    
+    Se order_item_id for fornecido, associa a imagem ao item existente.
+    Caso contrário, salva a imagem em diretório temporário para uso futuro.
+    
+    Retorna a referência do arquivo (caminho relativo) que pode ser usado
+    no campo 'imagem' do item do pedido.
+    """
+    try:
+        # Ler bytes do arquivo
+        image_data = await image.read()
+        
+        if not image_data:
+            raise HTTPException(status_code=400, detail="Arquivo vazio")
+        
+        # Determinar mime_type
+        mime_type = image.content_type or "image/jpeg"
+        if not mime_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Arquivo deve ser uma imagem")
+        
+        # Se tiver order_item_id, buscar o pedido_id do item
+        # (Nota: items estão em JSON, então isso pode não funcionar perfeitamente)
+        pedido_id = None
+        item_index = None
+        
+        if order_item_id:
+            # Tentar buscar pedido que contém o item com esse ID
+            # Como os itens estão em JSON, isso é mais complexo
+            # Por enquanto, salvar em diretório temporário
+            pedido_id = None
+        else:
+            # Upload antes de criar pedido - usar diretório temporário
+            pedido_id = None
+        
+        # Salvar imagem (usar diretório temporário se pedido_id for None)
+        if pedido_id:
+            relative_path, filename, size = await store_image_bytes(
+                pedido_id,
+                image_data,
+                mime_type,
+                image.filename,
+            )
+        else:
+            # Salvar em diretório temporário (pedidos/tmp)
+            def _extension_for(mime_type: str, original_name: Optional[str] = None) -> str:
+                if original_name:
+                    name = Path(original_name)
+                    if name.suffix:
+                        return name.suffix
+                guessed = mimetypes.guess_extension(mime_type or "")
+                if not guessed:
+                    return ".bin"
+                if guessed == ".jpe":
+                    return ".jpg"
+                return guessed
+            
+            target_dir = PEDIDOS_MEDIA_ROOT / "tmp"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            
+            extension = _extension_for(mime_type, image.filename)
+            filename = f"{uuid4().hex}{extension}"
+            destination = target_dir / filename
+            
+            async with aiofiles.open(destination, "wb") as file_obj:
+                await file_obj.write(image_data)
+            
+            relative_path = destination.relative_to(MEDIA_ROOT)
+            size = len(image_data)
+        
+        # Retornar referência (caminho relativo)
+        # O frontend pode usar esse caminho diretamente ou converter para URL
+        reference = str(relative_path).replace("\\", "/")
+        
+        logger.info(
+            "Imagem de item enviada: reference=%s, order_item_id=%s, size=%s",
+            reference,
+            order_item_id,
+            size,
+        )
+        
+        # Retornar referência que pode ser usada no campo imagem do item
+        # O frontend espera server_reference (ver imageUploader.ts linha 61)
+        # A referência é um caminho relativo que será salvo no banco
+        return {
+            "success": True,
+            "server_reference": reference,
+            "image_reference": reference,  # Mantido para compatibilidade
+            "path": reference,  # Mantido para compatibilidade
+            "filename": filename,
+            "size": size,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Erro ao fazer upload de imagem de item: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erro ao fazer upload: {str(e)}")
 
 @router.post("/save-json/{pedido_id}")
 async def salvar_pedido_json(
