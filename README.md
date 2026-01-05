@@ -38,9 +38,18 @@ pip install -r requirements.txt
 ```
 
 3. **Execute a aplicação**
+
+**Opção 1: Hypercorn (com múltiplos workers - Recomendado para produção no Windows)**
+```bash
+hypercorn main:app --bind 0.0.0.0:8000 --workers 4
+```
+
+**Opção 2: Uvicorn (desenvolvimento ou sem workers)**
 ```bash
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+**Nota:** No Windows, o Uvicorn não suporta múltiplos workers. Use Hypercorn para melhor performance em produção.
 
 ## 📚 Endpoints da API
 
@@ -237,6 +246,34 @@ As configurações podem ser alteradas no arquivo `config.py` ou através de var
 - `PROJECT_NAME`: Nome do projeto
 - `VERSION`: Versão da API
 - `BACKEND_CORS_ORIGINS`: Origens permitidas para CORS
+
+## 🚀 Múltiplos Workers no Windows
+
+Para melhor performance em produção no Windows Server, use **Hypercorn** que suporta múltiplos workers:
+
+### Instalação
+```bash
+pip install hypercorn
+```
+
+### Execução com múltiplos workers
+```powershell
+hypercorn main:app --bind 0.0.0.0:8000 --workers 4 --loop asyncio
+```
+
+### Número de workers recomendado
+- **CPU com 2-4 cores**: 2-3 workers
+- **CPU com 4-8 cores**: 4-6 workers  
+- **CPU com 8+ cores**: 6-8 workers
+
+### Configurar como serviço Windows (NSSM)
+```powershell
+nssm install SGP-API "C:\Python\python.exe" "-m hypercorn main:app --bind 0.0.0.0:8000 --workers 4 --loop asyncio"
+```
+
+**Nota:** Cada worker consome ~50-100MB de memória adicional. Monitore o uso de recursos ao aumentar o número de workers.
+
+**Importante:** Com múltiplos workers e SQLite, pode haver contenção no banco de dados. Para alta concorrência, considere migrar para PostgreSQL.
 
 ## 🚀 Melhorias Implementadas
 

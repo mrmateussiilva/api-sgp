@@ -60,7 +60,8 @@ Este documento descreve as melhorias implementadas para suportar 20 clientes sim
 ### 6. Dependências Adicionadas
 **Arquivo:** `requirements.txt`
 
-- Adicionado `aiofiles==24.1.0` para I/O assíncrono de arquivos
+- Adicionado `aiofiles>=25.1.0` para I/O assíncrono de arquivos
+- Adicionado `hypercorn>=0.17.0` para suporte a múltiplos workers no Windows
 
 ## 🚀 Como Executar no Windows Server 2012
 
@@ -70,6 +71,23 @@ pip install -r requirements.txt
 ```
 
 ### Execução da API
+
+#### Opção 1: Hypercorn (com múltiplos workers - Recomendado)
+```powershell
+hypercorn main:app --bind 0.0.0.0:8000 --workers 4 --loop asyncio
+```
+
+**Vantagens:**
+- Suporta múltiplos workers no Windows
+- Melhor performance com carga alta
+- Distribui requisições entre processos
+
+**Número de workers recomendado:**
+- CPU com 2-4 cores: 2-3 workers
+- CPU com 4-8 cores: 4-6 workers
+- CPU com 8+ cores: 6-8 workers
+
+#### Opção 2: Uvicorn (sem workers)
 ```powershell
 python -m uvicorn main:app --host 0.0.0.0 --port 8000 --loop asyncio
 ```
@@ -81,7 +99,11 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000 --loop asyncio
 #### Opção 1: Usando NSSM (Non-Sucking Service Manager)
 
 1. Baixe o NSSM: https://nssm.cc/download
-2. Instale o serviço:
+2. Instale o serviço com Hypercorn (recomendado):
+```powershell
+nssm install SGP-API "C:\Python\python.exe" "-m hypercorn main:app --bind 0.0.0.0:8000 --workers 4 --loop asyncio"
+```
+Ou com Uvicorn (sem workers):
 ```powershell
 nssm install SGP-API "C:\Python\python.exe" "-m uvicorn main:app --host 0.0.0.0 --port 8000 --loop asyncio"
 ```
@@ -97,7 +119,8 @@ nssm start SGP-API
 2. Crie uma nova tarefa
 3. Configure para executar:
    - Programa: `python.exe`
-   - Argumentos: `-m uvicorn main:app --host 0.0.0.0 --port 8000 --loop asyncio`
+   - Argumentos (Hypercorn): `-m hypercorn main:app --bind 0.0.0.0:8000 --workers 4 --loop asyncio`
+   - Argumentos (Uvicorn): `-m uvicorn main:app --host 0.0.0.0 --port 8000 --loop asyncio`
    - Diretório: Caminho do projeto
 4. Configure para executar na inicialização do sistema
 
@@ -109,10 +132,34 @@ nssm start SGP-API
 - O sistema implementa retry logic com backoff exponencial (até 5 tentativas) para lidar com locks
 - As otimizações de PRAGMA e pool aumentado reduzem significativamente a contenção
 
-### Sem Workers no Windows
+### Múltiplos Workers no Windows
+
+#### Opção 1: Hypercorn (Recomendado)
+- **Hypercorn** suporta múltiplos workers no Windows
+- Servidor ASGI compatível com FastAPI
+- Suporta HTTP/2 e WebSockets
+- Instalação: `pip install hypercorn`
+
+**Execução com múltiplos workers:**
+```powershell
+hypercorn main:app --bind 0.0.0.0:8000 --workers 4 --loop asyncio
+```
+
+**Configurar como serviço Windows (NSSM):**
+```powershell
+nssm install SGP-API "C:\Python\python.exe" "-m hypercorn main:app --bind 0.0.0.0:8000 --workers 4 --loop asyncio"
+```
+
+**Recomendações:**
+- Use 2-4 workers para começar (ajuste conforme CPU e memória disponível)
+- Cada worker consome memória adicional (~50-100MB por worker)
+- Monitore o uso de recursos ao aumentar o número de workers
+
+#### Opção 2: Uvicorn (Sem Workers)
 - Uvicorn não suporta workers no Windows (limitação do sistema operacional)
 - Toda a carga será processada em um único processo
 - As melhorias de I/O assíncrono ajudam a compensar essa limitação
+- Use quando precisar de simplicidade ou recursos limitados
 
 ## 📊 Monitoramento Recomendado
 
@@ -128,7 +175,9 @@ nssm start SGP-API
 
 3. **Uso de memória**
    - Pool de conexões consome memória adicional
-   - Monitorar uso geral do processo
+   - Com Hypercorn: cada worker consome ~50-100MB adicional
+   - Monitorar uso geral do processo e de cada worker
+   - Com 4 workers: espere ~200-400MB de memória adicional
 
 ### Logs
 Os logs já incluem informações sobre:
