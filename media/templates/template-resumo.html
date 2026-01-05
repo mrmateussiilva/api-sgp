@@ -143,11 +143,12 @@
     image-rendering: auto;
     aspect-ratio: auto;
   }
-  .spec-item:empty,
-  .spec-item:has-text(": "),
-  .spec-item:has-text(": Não"),
-  .spec-item:has-text(":  "),
-  .spec-item:has-text(": 0") {
+  /* Esconder campos vazios apenas para tipos que não sejam painel/tecido */
+  .especificacoes-content:not([data-tipo-producao="painel"]):not([data-tipo-producao="tecido"]) .spec-item:empty,
+  .especificacoes-content:not([data-tipo-producao="painel"]):not([data-tipo-producao="tecido"]) .spec-item:has-text(": "),
+  .especificacoes-content:not([data-tipo-producao="painel"]):not([data-tipo-producao="tecido"]) .spec-item:has-text(": Não"),
+  .especificacoes-content:not([data-tipo-producao="painel"]):not([data-tipo-producao="tecido"]) .spec-item:has-text(":  "),
+  .especificacoes-content:not([data-tipo-producao="painel"]):not([data-tipo-producao="tecido"]) .spec-item:has-text(": 0") {
     display: none;
   }
   /* Esconder campos baseado no tipo de produção */
@@ -284,9 +285,11 @@
           <div class="spec-item spec-lona">• Lona Qtd: {{quantidade_lona}}</div>
           
           <!-- Campos para TOTEM -->
-          <div class="spec-item spec-totem">• Acabamento Totem: {{acabamento_totem}}</div>
+          <div class="spec-item spec-totem">• Acabamento Totem: {{acabamento_totem_display}}</div>
           <div class="spec-item spec-totem">• Acabamento Totem Outro: {{acabamento_totem_outro}}</div>
           <div class="spec-item spec-totem">• Totem Qtd: {{quantidade_totem}}</div>
+          <div class="spec-item spec-totem">• Valor Totem: {{valor_totem}}</div>
+          <div class="spec-item spec-totem">• Outros Valores Totem: {{outros_valores_totem}}</div>
           
           <!-- Campos para ADESIVO -->
           <div class="spec-item spec-adesivo">• Tipo Adesivo: {{tipo_adesivo}}</div>
