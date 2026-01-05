@@ -820,6 +820,63 @@ async def salvar_pedido_json(
         raise HTTPException(status_code=500, detail=f"Erro ao salvar JSON: {str(e)}")
 
 
+@router.get("/{pedido_id}/json")
+async def obter_pedido_json(
+    pedido_id: int,
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Busca o arquivo JSON mais recente de um pedido.
+    Retorna o JSON completo com todos os dados do pedido.
+    """
+    try:
+        from pathlib import Path
+        import json
+        import aiofiles
+        
+        # Obter caminho do projeto (mesmo padrão usado em save-json)
+        PROJECT_ROOT = Path(__file__).resolve().parent.parent
+        from config import settings
+        _configured_media_root = Path(settings.MEDIA_ROOT)
+        if not _configured_media_root.is_absolute():
+            MEDIA_ROOT = (PROJECT_ROOT / _configured_media_root).resolve()
+        else:
+            MEDIA_ROOT = _configured_media_root.resolve()
+        
+        # Diretório do pedido
+        pedido_dir = MEDIA_ROOT / "pedidos" / str(pedido_id)
+        
+        if not pedido_dir.exists():
+            raise HTTPException(status_code=404, detail=f"JSON do pedido {pedido_id} não encontrado")
+        
+        # Buscar o arquivo JSON mais recente
+        json_files = list(pedido_dir.glob("pedido-*.json"))
+        if not json_files:
+            raise HTTPException(status_code=404, detail=f"JSON do pedido {pedido_id} não encontrado")
+        
+        # Ordenar por data de modificação (mais recente primeiro)
+        json_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        latest_json = json_files[0]
+        
+        # Ler e retornar o JSON
+        async with aiofiles.open(latest_json, 'r', encoding='utf-8') as f:
+            content = await f.read()
+            json_data = json.loads(content)
+        
+        # Remover metadados internos antes de retornar
+        json_data.pop('savedAt', None)
+        json_data.pop('savedBy', None)
+        json_data.pop('version', None)
+        
+        return json_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao buscar JSON do pedido {pedido_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar JSON: {str(e)}")
+
+
 @router.post("/", response_model=PedidoResponse)
 async def criar_pedido(
     pedido: PedidoCreate,
