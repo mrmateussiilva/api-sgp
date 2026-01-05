@@ -26,6 +26,8 @@ api-sgp/
 
 ## 🛠️ Instalação
 
+### Instalação Manual
+
 1. **Clone o repositório**
 ```bash
 git clone <url-do-repositorio>
@@ -50,6 +52,44 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 **Nota:** No Windows, o Uvicorn não suporta múltiplos workers. Use Hypercorn para melhor performance em produção.
+
+### 🚀 Deploy Automatizado no Windows Server
+
+Para facilitar o deploy no Windows Server, use o script automatizado:
+
+```powershell
+# Deploy básico (Hypercorn com 4 workers, porta 8000)
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1
+
+# Deploy com configurações customizadas
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 `
+  -Port 8080 `
+  -Workers 2 `
+  -ProjectPath "C:\SGP\api-sgp" `
+  -CreateEnvFile
+
+# Deploy apenas dependências (sem instalar serviço)
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -SkipServiceInstall
+
+# Deploy com Uvicorn (sem workers)
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -UseHypercorn $false -Workers 0
+```
+
+**O script automatiza:**
+- ✅ Verificação de pré-requisitos (Python, pip, NSSM)
+- ✅ Instalação de dependências Python
+- ✅ Criação de diretórios necessários (db, media, backups)
+- ✅ Criação de arquivo .env (opcional)
+- ✅ Instalação como serviço Windows usando NSSM
+- ✅ Configuração automática de logs
+- ✅ Inicialização do serviço
+
+**Requisitos:**
+- Executar como Administrador (para instalar serviço)
+- Python 3.12+ instalado e no PATH
+- PowerShell com permissão de execução de scripts
+
+**Nota:** O script baixa e instala o NSSM automaticamente se não estiver instalado.
 
 ## 📚 Endpoints da API
 
@@ -199,6 +239,29 @@ Scripts utilitários foram adicionados em `scripts/` para operações rotineiras
   python scripts/db_maintenance.py --analyze --optimize
   ```  
   Executa `PRAGMA integrity_check` e, por padrão, um `VACUUM`. Flags opcionais permitem rodar `ANALYZE` e `PRAGMA optimize`. Use `--no-vacuum` para pular a compactação.
+
+- **Remover Duplicatas**  
+  ```bash
+  # Verificar duplicatas sem remover (recomendado primeiro)
+  python scripts/remove_duplicates.py --dry-run
+  
+  # Remover duplicatas de uma tabela específica
+  python scripts/remove_duplicates.py --table clientes --confirm
+  
+  # Remover todas as duplicatas
+  python scripts/remove_duplicates.py --confirm
+  ```  
+  Identifica e remove registros duplicados em todas as tabelas principais. Mantém apenas o registro mais antigo (menor ID) e remove as duplicatas. O script verifica duplicatas em:
+  - **Clientes**: mesmo nome + telefone
+  - **Vendedores**: mesmo nome
+  - **Designers**: mesmo nome
+  - **Materiais**: mesmo nome
+  - **Pagamentos**: mesmo nome
+  - **Envios**: mesmo nome
+  - **Pedidos**: mesmo número
+  - **Usuários**: mesmo username
+  
+  **⚠️ Importante:** Sempre execute primeiro com `--dry-run` para ver o que será removido antes de confirmar a remoção.
 
 ## 🔄 Atualizador automático no Windows
 
