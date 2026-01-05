@@ -143,14 +143,12 @@
     image-rendering: auto;
     aspect-ratio: auto;
   }
-  /* Esconder campos vazios para todos os tipos (incluindo painel/tecido) */
-  .especificacoes-content .spec-item:empty,
-  .especificacoes-content .spec-item:has-text(": "),
-  .especificacoes-content .spec-item:has-text(": Não"),
-  .especificacoes-content .spec-item:has-text(":  "),
-  .especificacoes-content .spec-item:has-text(": 0") {
-    display: none;
+  /* NOTA: Para painel/tecido, todos os campos são preservados no HTML */
+  /* Campos com classe "hidden-empty" são escondidos via CSS */
+  .spec-item.hidden-empty {
+    display: none !important;
   }
+  
   /* Esconder campos baseado no tipo de produção */
   .especificacoes-content[data-tipo-producao="totem"] .spec-painel,
   .especificacoes-content[data-tipo-producao="totem"] .spec-tecido,
