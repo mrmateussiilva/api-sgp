@@ -135,6 +135,47 @@ class OrdersNotifier:
             for websocket in stale_connections:
                 await self.disconnect(websocket)
 
+    async def broadcast_except(self, message: Dict[str, Any], exclude_websocket: WebSocket) -> None:
+        """Envia mensagem para todos os clientes EXCETO o especificado (o remetente)."""
+        async with self._lock:
+            recipients = [ws for ws in self._connections if ws != exclude_websocket]
+
+        if not recipients:
+            if __debug__:
+                print(f"[WebSocket] Nenhum outro cliente para broadcast: {message.get('type', 'unknown')}")
+            return
+
+        try:
+            payload = orjson.dumps(message, default=str).decode("utf-8")
+        except Exception as e:
+            print(f"[WebSocket] Erro ao serializar mensagem: {e}")
+            return
+
+        stale_connections: Set[WebSocket] = set()
+        successful_sends = 0
+
+        send_tasks = [
+            asyncio.create_task(websocket.send_text(payload))
+            for websocket in recipients
+        ]
+        results = await asyncio.gather(*send_tasks, return_exceptions=True)
+        for websocket, result in zip(recipients, results):
+            if isinstance(result, Exception):
+                stale_connections.add(websocket)
+                if __debug__:
+                    print(f"[WebSocket] Erro ao enviar para cliente: {type(result).__name__}: {result}")
+            else:
+                successful_sends += 1
+
+        if __debug__:
+            event_type = message.get('type', 'unknown')
+            order_id = message.get('order_id') or (message.get('order', {}).get('id') if isinstance(message.get('order'), dict) else None)
+            print(f"[WebSocket] Broadcast '{event_type}' (exceto sender, pedido_id={order_id}): {successful_sends}/{len(recipients)} clientes notificados")
+
+        if stale_connections:
+            for websocket in stale_connections:
+                await self.disconnect(websocket)
+
     def get_connection_count(self) -> int:
         """Retorna o número total de conexões ativas."""
         return len(self._connections)

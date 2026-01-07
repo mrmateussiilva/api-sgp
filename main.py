@@ -124,7 +124,10 @@ async def orders_websocket(websocket: WebSocket):
     """
     Canal websocket protegido por token JWT.
     Garante apenas uma conexão ativa por usuário - fecha conexões antigas automaticamente.
+    Suporta broadcast de mensagens entre clientes.
     """
+    import json
+    
     # Aceitar conexão primeiro
     await websocket.accept()
     
@@ -146,6 +149,7 @@ async def orders_websocket(websocket: WebSocket):
         while True:
             # Receber mensagens (pode ser ping/pong ou outras mensagens)
             data = await websocket.receive_text()
+            
             # Responder a pings do heartbeat
             if data == '{"type":"ping"}' or data == "ping":
                 try:
@@ -153,6 +157,28 @@ async def orders_websocket(websocket: WebSocket):
                 except Exception:
                     # Se não conseguir enviar pong, a conexão está morta
                     break
+                continue
+            
+            # Tentar processar como JSON para broadcast
+            try:
+                message = json.loads(data)
+                
+                # Se for mensagem de broadcast, enviar para todos os outros clientes
+                if message.get("broadcast") and message.get("type") not in ("ping", "pong"):
+                    # Adicionar informações do usuário que enviou
+                    message["user_id"] = user_id
+                    message["username"] = user.username
+                    
+                    if __debug__:
+                        print(f"[WebSocket] Recebido broadcast do cliente (user_id={user_id}): type={message.get('type')}, order_id={message.get('order_id')}")
+                    
+                    # Broadcast para todos os outros clientes (exceto o remetente)
+                    await orders_notifier.broadcast_except(message, exclude_websocket=websocket)
+                    
+            except json.JSONDecodeError:
+                # Mensagem não é JSON válido, ignorar
+                pass
+                
     except WebSocketDisconnect:
         await orders_notifier.disconnect(websocket)
     except Exception as e:
