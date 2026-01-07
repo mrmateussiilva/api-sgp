@@ -1,27 +1,96 @@
 import asyncio
-from typing import Any, Dict, Set
+from typing import Any, Dict, Set, Optional
+from collections import defaultdict
 
 import orjson
 from fastapi import WebSocket
 
 class OrdersNotifier:
     def __init__(self) -> None:
+        # Rastrear conexões por user_id para evitar múltiplas conexões do mesmo usuário
         self._connections: Set[WebSocket] = set()
+        self._connections_by_user: Dict[int, Set[WebSocket]] = defaultdict(set)
+        self._user_by_websocket: Dict[WebSocket, int] = {}
         self._lock = asyncio.Lock()
+        # Heartbeat para detectar conexões mortas
+        self._heartbeat_interval = 30  # segundos
+        self._heartbeat_task: Optional[asyncio.Task] = None
 
-    async def connect(self, websocket: WebSocket) -> None:
-        # Conexão já foi aceita antes de chamar este método
+    async def connect(self, websocket: WebSocket, user_id: int) -> None:
+        """
+        Conecta um WebSocket, fechando conexões antigas do mesmo usuário.
+        Garante apenas uma conexão ativa por usuário.
+        """
         async with self._lock:
+            # Fechar conexões antigas do mesmo usuário
+            existing_connections = list(self._connections_by_user.get(user_id, set()))
+            if existing_connections:
+                if __debug__:
+                    print(f"[WebSocket] Fechando {len(existing_connections)} conexão(ões) antiga(s) do usuário {user_id}")
+                for old_ws in existing_connections:
+                    try:
+                        await old_ws.close(code=1000, reason="Nova conexão do mesmo usuário")
+                    except Exception:
+                        pass
+                    self._connections.discard(old_ws)
+                    self._user_by_websocket.pop(old_ws, None)
+            
+            # Adicionar nova conexão
             self._connections.add(websocket)
+            self._connections_by_user[user_id].add(websocket)
+            self._user_by_websocket[websocket] = user_id
+            
             if __debug__:
-                print(f"[WebSocket] Cliente conectado (total: {len(self._connections)})")
+                print(f"[WebSocket] Cliente conectado (user_id={user_id}, total: {len(self._connections)})")
+            
+            # Iniciar heartbeat se ainda não estiver rodando
+            if self._heartbeat_task is None or self._heartbeat_task.done():
+                self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
     async def disconnect(self, websocket: WebSocket) -> None:
+        """Desconecta um WebSocket e limpa todas as referências."""
         async with self._lock:
             if websocket in self._connections:
+                user_id = self._user_by_websocket.pop(websocket, None)
+                if user_id:
+                    self._connections_by_user[user_id].discard(websocket)
+                    if not self._connections_by_user[user_id]:
+                        del self._connections_by_user[user_id]
+                
                 self._connections.remove(websocket)
                 if __debug__:
-                    print(f"[WebSocket] Cliente desconectado (total: {len(self._connections)})")
+                    print(f"[WebSocket] Cliente desconectado (user_id={user_id}, total: {len(self._connections)})")
+
+    async def _heartbeat_loop(self) -> None:
+        """Loop de heartbeat para detectar e remover conexões mortas."""
+        while True:
+            try:
+                await asyncio.sleep(self._heartbeat_interval)
+                await self._check_connections()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                if __debug__:
+                    print(f"[WebSocket] Erro no heartbeat loop: {e}")
+
+    async def _check_connections(self) -> None:
+        """Verifica conexões ativas e remove as mortas."""
+        async with self._lock:
+            dead_connections = set()
+            connections_to_check = list(self._connections)
+        
+        for websocket in connections_to_check:
+            try:
+                # Tentar enviar ping para verificar se a conexão está viva
+                await websocket.send_text('{"type":"ping"}')
+            except Exception:
+                dead_connections.add(websocket)
+        
+        if dead_connections:
+            for ws in dead_connections:
+                await self.disconnect(ws)
+            if __debug__:
+                print(f"[WebSocket] Removidas {len(dead_connections)} conexões mortas pelo heartbeat")
 
     async def broadcast(self, message: Dict[str, Any]) -> None:
         async with self._lock:
@@ -61,12 +130,16 @@ class OrdersNotifier:
             print(f"[WebSocket] Broadcast '{event_type}' (pedido_id={order_id}): {successful_sends}/{len(recipients)} clientes notificados")
 
         if stale_connections:
-            async with self._lock:
-                for websocket in stale_connections:
-                    if websocket in self._connections:
-                        self._connections.remove(websocket)
-                        if __debug__:
-                            print(f"[WebSocket] Cliente desconectado removido (total: {len(self._connections)})")
+            for websocket in stale_connections:
+                await self.disconnect(websocket)
+
+    def get_connection_count(self) -> int:
+        """Retorna o número total de conexões ativas."""
+        return len(self._connections)
+    
+    def get_connections_by_user(self) -> Dict[int, int]:
+        """Retorna o número de conexões por usuário (deve ser sempre 1 por usuário)."""
+        return {user_id: len(connections) for user_id, connections in self._connections_by_user.items()}
 
 
 orders_notifier = OrdersNotifier()
@@ -95,7 +168,8 @@ def schedule_broadcast(message: Dict[str, Any]) -> None:
 
     # Criar task assíncrona para broadcast não-bloqueante
     if __debug__:
-        print(f"[schedule_broadcast] Criando task de broadcast para {len(orders_notifier._connections)} conexões")
+        connection_count = orders_notifier.get_connection_count()
+        print(f"[schedule_broadcast] Criando task de broadcast para {connection_count} conexões")
     
     task = loop.create_task(orders_notifier.broadcast(message))
     

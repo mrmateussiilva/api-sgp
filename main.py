@@ -96,7 +96,10 @@ async def health():
 
 @app.websocket("/ws/orders")
 async def orders_websocket(websocket: WebSocket):
-    """Canal websocket protegido por token JWT."""
+    """
+    Canal websocket protegido por token JWT.
+    Garante apenas uma conexão ativa por usuário - fecha conexões antigas automaticamente.
+    """
     # Aceitar conexão primeiro
     await websocket.accept()
     
@@ -110,11 +113,24 @@ async def orders_websocket(websocket: WebSocket):
         await websocket.close(code=1008, reason="Token inválido ou ausente")
         return
 
-    await orders_notifier.connect(websocket)
+    user_id = user.id
+    # Conectar passando user_id - isso fecha conexões antigas do mesmo usuário
+    await orders_notifier.connect(websocket, user_id)
+    
     try:
         while True:
-            await websocket.receive_text()
+            # Receber mensagens (pode ser ping/pong ou outras mensagens)
+            data = await websocket.receive_text()
+            # Responder a pings do heartbeat
+            if data == '{"type":"ping"}' or data == "ping":
+                try:
+                    await websocket.send_text('{"type":"pong"}')
+                except Exception:
+                    # Se não conseguir enviar pong, a conexão está morta
+                    break
     except WebSocketDisconnect:
         await orders_notifier.disconnect(websocket)
-    except Exception:
+    except Exception as e:
+        if __debug__:
+            print(f"[WebSocket] Erro na conexão do usuário {user_id}: {e}")
         await orders_notifier.disconnect(websocket)
