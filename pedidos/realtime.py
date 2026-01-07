@@ -34,6 +34,8 @@ class OrdersNotifier:
                         pass
                     self._connections.discard(old_ws)
                     self._user_by_websocket.pop(old_ws, None)
+            # Limpar todas as conexões antigas do usuário
+            self._connections_by_user[user_id].clear()
             
             # Adicionar nova conexão
             self._connections.add(websocket)
