@@ -359,7 +359,19 @@ async def apply_image_changes(
     removals: List[PendingImageRemoval],
     items_payload: List[dict[str, Any]],
 ) -> bool:
-    if not uploads and not removals:
+    # Também precisamos tratar referências já existentes apontando para pedidos/tmp/*
+    # (imagem selecionada previamente e salva como path relativo), promovendo para
+    # pedidos/{pedido_id}/ e criando registro PedidoImagem.
+    promotions: list[tuple[int, Optional[str], str]] = []
+    for index, item in enumerate(items_payload):
+        image_value = item.get("imagem")
+        if not isinstance(image_value, str):
+            continue
+        normalized = image_value.strip().lstrip("/")
+        if normalized.startswith("pedidos/tmp/"):
+            promotions.append((index, resolve_item_identifier(item), normalized))
+
+    if not uploads and not removals and not promotions:
         return False
 
     result = await session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido_id))
@@ -433,6 +445,50 @@ async def apply_image_changes(
             print(f"[UPLOAD] Caminho da imagem salvo no item: {items_payload[upload.index].get('imagem')}")
         has_changes = True
 
+
+    # Promover imagens que ficaram como referência em pedidos/tmp/*
+    # Isso evita que a imagem "suma" ao editar (tmp pode ser limpo ou não estar vinculado ao pedido).
+    for index, identifier, tmp_rel in promotions:
+        record = _pop_matching(identifier, index)
+        if record:
+            await _remove_image(record)
+
+        try:
+            src = absolute_media_path(tmp_rel)
+            async with aiofiles.open(src, "rb") as f:
+                binary_data = await f.read()
+
+            mime_type = mimetypes.guess_type(src.name)[0] or "image/jpeg"
+            relative_path, filename, size = await store_image_bytes(
+                pedido_id,
+                binary_data,
+                mime_type,
+                original_filename=src.name,
+            )
+
+            image_row = PedidoImagem(
+                pedido_id=pedido_id,
+                item_index=index,
+                item_identificador=identifier,
+                filename=filename,
+                mime_type=mime_type,
+                path=relative_path,
+                tamanho=size,
+            )
+            session.add(image_row)
+            await session.flush()
+
+            url = build_api_path(f"/pedidos/imagens/{image_row.id}")
+            if 0 <= index < len(items_payload):
+                items_payload[index]["imagem"] = url
+                items_payload[index]["imagem_path"] = str(relative_path)
+
+            # Apagar tmp antigo (best-effort)
+            await delete_media_file(tmp_rel)
+
+            has_changes = True
+        except Exception as e:
+            print(f"[PROMOTE-TMP] Erro ao promover imagem {tmp_rel}: {e}")
     return has_changes
 
 
