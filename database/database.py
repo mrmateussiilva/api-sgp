@@ -59,10 +59,13 @@ async def create_db_and_tables():
     Preserva dados existentes - não recria tabelas que já existem.
     """
     async with engine.begin() as conn:
-        # Verificar se o banco já existe e tem tabelas
-        from sqlalchemy import inspect
-        inspector = inspect(engine.sync_engine)
-        existing_tables = inspector.get_table_names()
+        # Verificar se o banco já existe e tem tabelas de forma assíncrona
+        def _check_existing_tables(sync_conn):
+            from sqlalchemy import inspect
+            inspector = inspect(sync_conn)
+            return inspector.get_table_names()
+        
+        existing_tables = await conn.run_sync(_check_existing_tables)
         
         if existing_tables:
             # Banco já existe com tabelas - apenas garantir que novas tabelas sejam criadas
