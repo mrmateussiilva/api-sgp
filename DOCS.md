@@ -81,6 +81,223 @@ Suporte adicional:
   - Retorna `ultimo_id` (contador global incrementado em cada criação) e timestamp atual.
   - Serve como fallback simples para frontends que ainda não consomem WebSocket, possibilitando detectar novos pedidos ao comparar IDs.
 
+### Guia “bem simples” — Como pedidos são gravados e como o frontend recebe atualizações (REST + WebSocket)
+
+Se você só quer entender “o que acontece quando eu crio/edito/apago um pedido” e “como isso chega no frontend”, é aqui.
+
+#### 1) Onde o pedido é gravado?
+
+##### 1.1 Criar pedido (grava no banco)
+
+- **Endpoint**: `POST /pedidos/`
+- **Função**: `criar_pedido(...)` (em `pedidos/router.py`)
+- **O que ela faz (ordem real)**:
+  - Recebe o JSON do frontend (`PedidoCreate`).
+  - Prepara os `items`:
+    - Converte para um formato interno e salva como **string JSON** no campo `Pedido.items`.
+    - Também prepara uploads/remoções pendentes de imagens.
+  - Gera `numero` automaticamente se não vier no payload (`get_next_order_number`).
+  - Cria o objeto `Pedido` e faz:
+    - `session.add(db_pedido)`
+    - `await session.flush()`
+    - aplica imagens (`apply_image_changes(...)`)
+    - `await session.commit()`
+    - `await session.refresh(db_pedido)`
+  - Monta o `PedidoResponse` (o que volta pro frontend no REST).
+  - **Salva um JSON do pedido em disco** (muito importante):
+    - `_save_pedido_json_internal(pedido_id, jsonable_encoder(response))`
+    - Isso cria um arquivo em:
+      - `MEDIA_ROOT/pedidos/{pedido_id}/pedido-{pedido_id}-{timestamp}.json`
+  - **Envia evento WebSocket pro frontend**:
+    - `broadcast_order_event("order_created", response, None, user_info)`
+
+##### 1.2 Atualizar pedido (grava no banco)
+
+- **Endpoint**: `PATCH /pedidos/{pedido_id}`
+- **Função**: `atualizar_pedido(...)` (em `pedidos/router.py`)
+- **O que ela faz (ordem real)**:
+  - Busca o pedido no banco.
+  - Captura um “ANTES” dos campos de status (`status_fields_before`).
+  - Aplica atualização (`setattr(...)` + tratamento de itens/imagens).
+  - `commit()` e `refresh()`
+  - Captura um “DEPOIS” (`status_fields_after`) e calcula se mudou algo de status/etapas (`status_changed`).
+  - Monta o `PedidoResponse`.
+  - **Salva JSON em disco antes do broadcast**:
+    - `_save_pedido_json_internal(pedido_id, jsonable_encoder(response))`
+  - **Sempre** dispara:
+    - `broadcast_order_event("order_updated", response, None, user_info)`
+  - **Só se mudou status/etapas**, dispara também:
+    - `broadcast_order_event("order_status_updated", response, None, user_info)`
+
+##### 1.3 Deletar pedido (remove do banco)
+
+- **Endpoint**: `DELETE /pedidos/{pedido_id}`
+- **Função**: `deletar_pedido(...)`
+- **O que ela faz**:
+  - Remove imagens do disco ligadas ao pedido.
+  - Deleta imagens no banco (tabela de imagens).
+  - Deleta o pedido.
+  - `commit()`
+  - Dispara WebSocket:
+    - `broadcast_order_event("order_deleted", order_id=pedido_id)`
+
+#### 2) Por que existe `GET /pedidos/{id}/json`?
+
+- Esse endpoint **não vai no banco**.
+- Ele lê o **arquivo JSON mais recente** do pedido em disco:
+  - procura `MEDIA_ROOT/pedidos/{id}/pedido-*.json`
+  - pega o mais novo (por `mtime`)
+  - remove metadados (`savedAt`, `savedBy`, `version`)
+  - retorna o JSON
+
+**Motivo prático**:
+- Quando o servidor envia um evento WebSocket, o frontend pode chamar `/pedidos/{id}/json` pra pegar “o pedido completo mais recente”.
+- Por isso o código faz “salvar JSON ANTES do broadcast” (pra evitar o frontend buscar e pegar arquivo velho).
+
+#### 3) Como o WebSocket funciona (o “tempo real”)
+
+##### 3.1 Onde está o WebSocket
+
+- **Endpoint**: `GET ws://.../ws/orders?token=SEU_JWT`
+- **Função**: `orders_websocket(websocket: WebSocket)` em `main.py`
+
+##### 3.2 Autenticação do WebSocket
+
+- O servidor aceita conexão e depois valida o token:
+  - `token` pode vir na querystring `?token=...`
+  - ou no header `Authorization: Bearer ...`
+
+Se token inválido:
+- o servidor fecha com:
+  - code `1008` e reason `"Token inválido ou ausente"`
+
+##### 3.3 Lista de conexões (quem recebe broadcast)
+
+- A classe é `OrdersNotifier` em `pedidos/realtime.py`.
+- Ela guarda:
+  - `self._connections`: **todas as conexões ativas**
+  - `self._connections_by_user`: conexões por usuário (pra debug/controle)
+  - `heartbeat`: a cada 30s manda `{"type":"ping"}` pra detectar conexão morta
+
+##### 3.4 Broadcast “servidor → todos os clientes”
+
+Isso é usado quando você cria/atualiza/deleta pedido via REST.
+
+O caminho é:
+- `broadcast_order_event(...)` (em `pedidos/router.py`)
+- monta `message` e chama `schedule_broadcast(message)` (em `pedidos/realtime.py`)
+- `schedule_broadcast` cria uma task e executa `orders_notifier.broadcast(message)`
+- `orders_notifier.broadcast` envia o JSON para todas as conexões ativas via `send_text(...)`
+
+##### 3.5 Broadcast “cliente → servidor → outros clientes”
+
+Isso é usado quando o **frontend manda um JSON pelo WebSocket** e quer que o servidor repasse pros outros clientes.
+
+- O servidor fica num loop:
+  - `data = await websocket.receive_text()`
+
+Regras:
+- Se `data` for ping (`"ping"` ou `{"type":"ping"}`), o servidor responde pong e **não faz broadcast**.
+- Se `data` for JSON e tiver `"broadcast": true`, o servidor repassa para os **outros** clientes (não manda de volta pra quem enviou), usando `orders_notifier.broadcast_except(...)`.
+
+#### 4) Funções importantes (nome por nome)
+
+##### Em `pedidos/router.py`
+
+- `criar_pedido(...)`: cria pedido no banco + salva JSON + emite `order_created`
+- `atualizar_pedido(...)`: atualiza pedido + salva JSON + emite `order_updated` e `order_status_updated` (se mudou)
+- `deletar_pedido(...)`: apaga + emite `order_deleted`
+- `_save_pedido_json_internal(pedido_id, pedido_data)`: grava arquivo JSON em `MEDIA_ROOT/pedidos/...`
+- `broadcast_order_event(event_type, pedido=None, order_id=None, user_info=None)`: monta payload e chama `schedule_broadcast`
+
+##### Em `pedidos/realtime.py`
+
+- `schedule_broadcast(message)`: agenda `broadcast(...)` no event loop
+- `OrdersNotifier.broadcast(message)`: manda para TODO MUNDO conectado
+- `OrdersNotifier.broadcast_except(message, exclude_websocket)`: manda para TODO MUNDO exceto o remetente
+- `OrdersNotifier.connect/disconnect`: registra/remove conexões
+- Heartbeat: manda `{"type":"ping"}` periodicamente
+
+##### Em `main.py`
+
+- `orders_websocket(...)`: endpoint `/ws/orders` que lê mensagens e dispara broadcast quando `broadcast: true`
+
+#### 5) Exemplos reais (payloads) que o frontend recebe
+
+##### 5.1 Exemplo real de `order_updated` / `order_status_updated`
+
+Quando alguém atualiza um pedido, a mensagem enviada ao frontend segue este formato (resumo):
+
+```json
+{
+  "type": "order_updated",
+  "order_id": 2,
+  "user_id": 6,
+  "username": "mateus",
+  "order": {
+    "id": 2,
+    "numero": "0000000002",
+    "status": "pendente",
+    "financeiro": true,
+    "conferencia": true,
+    "sublimacao": true,
+    "costura": true,
+    "expedicao": false,
+    "pronto": false,
+    "ultima_atualizacao": "2026-01-07T06:02:13.219293",
+    "items": [
+      {
+        "tipo_producao": "painel",
+        "descricao": "TETETE",
+        "imagem": "pedidos/tmp/7674dd9fa3194dc68c9d12a27c5c3ff1.jpg",
+        "acabamento": { "overloque": true, "elastico": true, "ilhos": false }
+      }
+    ]
+  }
+}
+```
+
+Às vezes também chega:
+
+```json
+{
+  "type": "order_status_updated",
+  "order_id": 2,
+  "user_id": 6,
+  "username": "mateus",
+  "order": { "...mesma estrutura do pedido..." }
+}
+```
+
+##### 5.2 Exemplo do que o frontend envia pelo WebSocket (cliente → servidor)
+
+Formato esperado:
+
+```json
+{
+  "type": "order_status_updated",
+  "order_id": 2,
+  "order": { "id": 2, "status": "pendente" },
+  "timestamp": 1768456922,
+  "broadcast": true
+}
+```
+
+O servidor vai:
+- ignorar se for ping/pong
+- se `broadcast: true`, repassar para todos os outros clientes conectados
+
+#### 6) Checklist rápido: se algo não estiver chegando no frontend
+
+1. O frontend abriu WebSocket em `/ws/orders` com token válido?
+2. O servidor aceitou e autenticou? (procure log `Cliente conectado`)
+3. Ao criar/atualizar pedido via REST, aparece log `[Broadcast] Preparando broadcast...`?
+4. Tem pelo menos 1 conexão ativa no momento do broadcast?
+5. Se for broadcast enviado pelo cliente:
+   - o JSON tem `broadcast: true`?
+   - não é `ping/pong`?
+   - o servidor não está descartando por JSON inválido?
+
 ## Cadastros Auxiliares
 
 Todos os módulos expõem CRUD completo (listar, obter, criar, atualizar parcialmente, remover) usando `AsyncSession`. Campos `ativo` permitem filtros específicos.
