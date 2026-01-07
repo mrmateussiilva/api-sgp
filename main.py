@@ -123,7 +123,7 @@ async def health():
 async def orders_websocket(websocket: WebSocket):
     """
     Canal websocket protegido por token JWT.
-    Garante apenas uma conexão ativa por usuário - fecha conexões antigas automaticamente.
+    Permite múltiplas conexões por usuário (ex.: várias abas/PCs com o mesmo login).
     Suporta broadcast de mensagens entre clientes.
     """
     import json
@@ -142,7 +142,7 @@ async def orders_websocket(websocket: WebSocket):
         return
 
     user_id = user.id
-    # Conectar passando user_id - isso fecha conexões antigas do mesmo usuário
+    # Conectar passando user_id (múltiplas conexões por usuário são permitidas)
     await orders_notifier.connect(websocket, user_id)
     
     try:

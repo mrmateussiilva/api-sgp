@@ -7,7 +7,7 @@ from fastapi import WebSocket
 
 class OrdersNotifier:
     def __init__(self) -> None:
-        # Rastrear conexões por user_id para evitar múltiplas conexões do mesmo usuário
+        # Rastrear conexões por user_id (múltiplas conexões por usuário são permitidas)
         self._connections: Set[WebSocket] = set()
         self._connections_by_user: Dict[int, Set[WebSocket]] = defaultdict(set)
         self._user_by_websocket: Dict[WebSocket, int] = {}
@@ -18,24 +18,13 @@ class OrdersNotifier:
 
     async def connect(self, websocket: WebSocket, user_id: int) -> None:
         """
-        Conecta um WebSocket, fechando conexões antigas do mesmo usuário.
-        Garante apenas uma conexão ativa por usuário.
+        Conecta um WebSocket.
+
+        IMPORTANTE: não fechamos mais conexões antigas do mesmo usuário.
+        Isso permite múltiplos computadores/abas usando o mesmo login receberem
+        eventos em tempo real (broadcast) simultaneamente.
         """
         async with self._lock:
-            # Fechar conexões antigas do mesmo usuário
-            existing_connections = list(self._connections_by_user.get(user_id, set()))
-            if existing_connections:
-                if __debug__:
-                    print(f"[WebSocket] Fechando {len(existing_connections)} conexão(ões) antiga(s) do usuário {user_id}")
-                for old_ws in existing_connections:
-                    try:
-                        await old_ws.close(code=1000, reason="Nova conexão do mesmo usuário")
-                    except Exception:
-                        pass
-                    self._connections.discard(old_ws)
-                    self._user_by_websocket.pop(old_ws, None)
-            # Limpar todas as conexões antigas do usuário
-            self._connections_by_user[user_id].clear()
             
             # Adicionar nova conexão
             self._connections.add(websocket)
@@ -43,7 +32,7 @@ class OrdersNotifier:
             self._user_by_websocket[websocket] = user_id
             
             if __debug__:
-                print(f"[WebSocket] Cliente conectado (user_id={user_id}, total: {len(self._connections)})")
+                print(f"[WebSocket] Cliente conectado (user_id={user_id}, total={len(self._connections)}, por_usuario={len(self._connections_by_user[user_id])})")
             
             # Iniciar heartbeat se ainda não estiver rodando
             if self._heartbeat_task is None or self._heartbeat_task.done():
@@ -181,7 +170,7 @@ class OrdersNotifier:
         return len(self._connections)
     
     def get_connections_by_user(self) -> Dict[int, int]:
-        """Retorna o número de conexões por usuário (deve ser sempre 1 por usuário)."""
+        """Retorna o número de conexões por usuário."""
         return {user_id: len(connections) for user_id, connections in self._connections_by_user.items()}
 
 
