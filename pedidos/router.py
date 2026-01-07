@@ -215,6 +215,40 @@ def broadcast_order_event(event_type: str, pedido: Optional[PedidoResponse] = No
     schedule_broadcast(message)
 
 
+
+async def _save_pedido_json_internal(pedido_id: int, pedido_data: dict[str, Any]) -> None:
+    # Salva JSON do pedido em disco (MEDIA_ROOT/pedidos/{pedido_id}/) antes do broadcast
+    try:
+        pedido_dir = MEDIA_ROOT / "pedidos" / str(pedido_id)
+        pedido_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.utcnow().isoformat().replace(":", "-").replace(".", "-")
+        filename = f"pedido-{pedido_id}-{timestamp}.json"
+        filepath = pedido_dir / filename
+
+        json_data: dict[str, Any] = {
+            **pedido_data,
+            "savedAt": datetime.utcnow().isoformat(),
+            "savedBy": "SGP System",
+            "version": "1.0",
+        }
+
+        if 'items' in json_data and isinstance(json_data['items'], list):
+            for idx, item in enumerate(json_data['items']):
+                if isinstance(item, dict) and 'imagem' in item:
+                    print(f"[SAVE-JSON] Item {idx} tem imagem: {item.get('imagem')}")
+
+        payload = orjson.dumps(json_data, option=orjson.OPT_INDENT_2, default=str)
+        async with aiofiles.open(filepath, 'wb') as f:
+            await f.write(payload)
+
+        relative_path = filepath.relative_to(MEDIA_ROOT)
+        path_str = str(relative_path).replace('\\', '/')
+        print(f"[UPLOAD] JSON do pedido {pedido_id} salvo em {path_str}")
+    except Exception as e:
+        logger.warning("Erro ao salvar JSON interno do pedido %s: %s", pedido_id, e, exc_info=True)
+
+
 def build_api_path(path: str) -> str:
     normalized = path if path.startswith("/") else f"/{path}"
     prefix = (settings.API_V1_STR or "").strip()
@@ -946,6 +980,12 @@ async def criar_pedido(
             if db_pedido.id is not None:
                 ULTIMO_PEDIDO_ID = db_pedido.id
             
+            # 🔥 Garantir JSON atualizado ANTES do broadcast (evita /json stale nos clientes)
+
+            
+            await _save_pedido_json_internal(db_pedido.id, jsonable_encoder(response))
+
+            
             broadcast_order_event("order_created", response, None, user_info)
 
             return response
@@ -1233,6 +1273,10 @@ async def atualizar_pedido(
             # 🔥 SEMPRE ENVIAR order_updated quando há qualquer atualização
             if __debug__:
                 logger.debug("[Pedidos] Enviando broadcast 'order_updated' para pedido %s", pedido_id)
+            # 🔥 Garantir JSON atualizado ANTES do broadcast (evita /json stale nos clientes)
+
+            await _save_pedido_json_internal(pedido_id, jsonable_encoder(response))
+
             broadcast_order_event("order_updated", response, None, user_info)
             
             # 🔥 ENVIAR order_status_updated APENAS quando há mudança real de status
