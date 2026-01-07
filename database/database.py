@@ -54,9 +54,25 @@ if engine.sync_engine.url.get_backend_name() == "sqlite":
 
 
 async def create_db_and_tables():
-    """Cria as tabelas no banco de dados"""
+    """
+    Cria as tabelas no banco de dados apenas se não existirem.
+    Preserva dados existentes - não recria tabelas que já existem.
+    """
     async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
+        # Verificar se o banco já existe e tem tabelas
+        from sqlalchemy import inspect
+        inspector = inspect(engine.sync_engine)
+        existing_tables = inspector.get_table_names()
+        
+        if existing_tables:
+            # Banco já existe com tabelas - apenas garantir que novas tabelas sejam criadas
+            # create_all com checkfirst=True não recria tabelas existentes
+            await conn.run_sync(SQLModel.metadata.create_all, checkfirst=True)
+            print(f"[Database] Banco de dados já existe com {len(existing_tables)} tabelas. Apenas verificando novas tabelas.")
+        else:
+            # Banco novo - criar todas as tabelas
+            await conn.run_sync(SQLModel.metadata.create_all)
+            print("[Database] Banco de dados criado com todas as tabelas.")
 
 
 async def get_session():

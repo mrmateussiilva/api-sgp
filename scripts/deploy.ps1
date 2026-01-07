@@ -44,11 +44,20 @@
 .PARAMETER SkipServiceInstall
     Pular instalação do serviço (apenas instalar dependências) (default: $false)
 
+.PARAMETER UseExe
+    Usar executável .exe ao invés de Python (default: $false)
+
+.PARAMETER ExePath
+    Caminho do executável .exe (obrigatório se UseExe=true)
+
 .EXAMPLE
     .\deploy.ps1 -Workers 4 -Port 8000
 
 .EXAMPLE
     .\deploy.ps1 -ProjectPath "C:\SGP\api-sgp" -Workers 2 -UseHypercorn $false
+
+.EXAMPLE
+    .\deploy.ps1 -UseExe -ExePath "C:\SGP\api_sgp_0_1.exe" -Port 8000
 #>
 param(
     [Parameter()][string]$ProjectPath = (Get-Location).Path,
@@ -61,7 +70,9 @@ param(
     [Parameter()][bool]$InstallNSSM = $true,
     [Parameter()][bool]$CreateEnvFile = $false,
     [Parameter()][string]$SecretKey = "",
-    [Parameter()][switch]$SkipServiceInstall
+    [Parameter()][switch]$SkipServiceInstall,
+    [Parameter()][bool]$UseExe = $false,
+    [Parameter()][string]$ExePath = ""
 )
 
 Set-StrictMode -Version Latest
@@ -84,22 +95,38 @@ function Test-Administrator {
 function Test-Prerequisites {
     Write-Info "Verificando pré-requisitos..."
     
-    # Verificar Python
-    try {
-        $pythonVersion = & $PythonPath --version 2>&1
-        Write-Success "Python encontrado: $pythonVersion"
-    } catch {
-        Write-Error "Python não encontrado. Instale Python 3.12+ e adicione ao PATH."
-        exit 1
-    }
-    
-    # Verificar pip
-    try {
-        $pipVersion = & $PythonPath -m pip --version 2>&1
-        Write-Success "pip encontrado: $pipVersion"
-    } catch {
-        Write-Error "pip não encontrado. Instale pip e tente novamente."
-        exit 1
+    if ($UseExe) {
+        # Modo executável - verificar se o .exe existe
+        if ([string]::IsNullOrEmpty($ExePath)) {
+            Write-Error "UseExe=true mas ExePath não foi fornecido."
+            exit 1
+        }
+        
+        $exeFullPath = (Resolve-Path $ExePath -ErrorAction SilentlyContinue)
+        if (-not $exeFullPath -or -not (Test-Path $exeFullPath)) {
+            Write-Error "Executável não encontrado: $ExePath"
+            exit 1
+        }
+        
+        Write-Success "Executável encontrado: $exeFullPath"
+        $script:ExePath = $exeFullPath.Path
+    } else {
+        # Modo Python - verificar Python e pip
+        try {
+            $pythonVersion = & $PythonPath --version 2>&1
+            Write-Success "Python encontrado: $pythonVersion"
+        } catch {
+            Write-Error "Python não encontrado. Instale Python 3.12+ e adicione ao PATH."
+            exit 1
+        }
+        
+        try {
+            $pipVersion = & $PythonPath -m pip --version 2>&1
+            Write-Success "pip encontrado: $pipVersion"
+        } catch {
+            Write-Error "pip não encontrado. Instale pip e tente novamente."
+            exit 1
+        }
     }
     
     # Verificar NSSM (se necessário)
@@ -154,6 +181,11 @@ function Install-NSSM {
 
 # Instalar dependências Python
 function Install-Dependencies {
+    if ($UseExe) {
+        Write-Info "Modo executável: pulando instalação de dependências (já incluídas no .exe)"
+        return
+    }
+    
     Write-Info "Instalando dependências Python..."
     
     $requirementsPath = Join-Path $ProjectPath "requirements.txt"
@@ -250,20 +282,33 @@ function Install-WindowsService {
     }
     
     # Determinar comando baseado na escolha
-    if ($UseHypercorn) {
-        if ($Workers -gt 0) {
-            $appArgs = "-m hypercorn main:app --bind 0.0.0.0:$Port --workers $Workers --loop asyncio"
+    if ($UseExe) {
+        # Modo executável - o executável já contém tudo
+        # O executável aceita argumentos de linha de comando
+        if ($UseHypercorn -and $Workers -gt 0) {
+            $appArgs = "--bind 0.0.0.0:$Port --workers $Workers"
         } else {
-            Write-Warning "Workers=0 mas UseHypercorn=true. Usando 1 worker."
-            $appArgs = "-m hypercorn main:app --bind 0.0.0.0:$Port --workers 1 --loop asyncio"
+            $appArgs = "--bind 0.0.0.0:$Port"
         }
+        $appExecutable = $ExePath
     } else {
-        $appArgs = "-m uvicorn main:app --host 0.0.0.0 --port $Port --loop asyncio"
+        # Modo Python - usar Python com módulo
+        if ($UseHypercorn) {
+            if ($Workers -gt 0) {
+                $appArgs = "-m hypercorn main:app --bind 0.0.0.0:$Port --workers $Workers --loop asyncio"
+            } else {
+                Write-Warning "Workers=0 mas UseHypercorn=true. Usando 1 worker."
+                $appArgs = "-m hypercorn main:app --bind 0.0.0.0:$Port --workers 1 --loop asyncio"
+            }
+        } else {
+            $appArgs = "-m uvicorn main:app --host 0.0.0.0 --port $Port --loop asyncio"
+        }
+        $appExecutable = $PythonPath
     }
     
     # Instalar serviço
     try {
-        & $NSSMPath install $ServiceName $PythonPath $appArgs
+        & $NSSMPath install $ServiceName $appExecutable $appArgs
         & $NSSMPath set $ServiceName AppDirectory $ProjectPath
         & $NSSMPath set $ServiceName DisplayName "SGP API Server"
         & $NSSMPath set $ServiceName Description "API Sistema de Gestão de Produção (SGP)"
@@ -276,7 +321,12 @@ function Install-WindowsService {
         New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
         
         Write-Success "Serviço instalado com sucesso"
-        Write-Info "Comando: $PythonPath $appArgs"
+        if ($UseExe) {
+            Write-Info "Executável: $appExecutable"
+            Write-Info "Argumentos: $appArgs"
+        } else {
+            Write-Info "Comando: $PythonPath $appArgs"
+        }
     } catch {
         Write-Error "Falha ao instalar serviço: $_"
         exit 1
@@ -330,11 +380,21 @@ function Main {
     $ProjectPath = (Resolve-Path $ProjectPath).Path
     Write-Info "Diretório do projeto: $ProjectPath"
     
-    # Verificar se main.py existe
-    $mainPy = Join-Path $ProjectPath "main.py"
-    if (-not (Test-Path $mainPy)) {
-        Write-Error "Arquivo main.py não encontrado em: $ProjectPath"
-        exit 1
+    # Verificar se main.py ou executável existe
+    if (-not $UseExe) {
+        $mainPy = Join-Path $ProjectPath "main.py"
+        if (-not (Test-Path $mainPy)) {
+            Write-Error "Arquivo main.py não encontrado em: $ProjectPath"
+            exit 1
+        }
+    } else {
+        if (-not (Test-Path $ExePath)) {
+            Write-Error "Executável não encontrado: $ExePath"
+            exit 1
+        }
+        # Se usar executável, o ProjectPath deve ser onde o .exe está
+        $ProjectPath = (Split-Path $ExePath -Parent)
+        Write-Info "Usando diretório do executável: $ProjectPath"
     }
     
     # Executar etapas

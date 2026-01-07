@@ -1,3 +1,28 @@
+import sys
+import os
+from pathlib import Path
+
+# Se estiver rodando como executável PyInstaller
+if getattr(sys, 'frozen', False):
+    # Executável PyInstaller
+    BASE_DIR = Path(sys._MEIPASS)
+    # Diretório de trabalho = onde o .exe está
+    WORK_DIR = Path(sys.executable).parent
+else:
+    # Código Python normal
+    BASE_DIR = Path(__file__).parent
+    WORK_DIR = BASE_DIR
+
+# Garantir que diretórios necessários existam no diretório do executável
+for dir_name in ["db", "media", "logs", "backups"]:
+    (WORK_DIR / dir_name).mkdir(exist_ok=True)
+
+# Ajustar variáveis de ambiente se não estiverem definidas
+if "DATABASE_URL" not in os.environ:
+    os.environ["DATABASE_URL"] = f"sqlite:///{WORK_DIR / 'db' / 'banco.db'}"
+if "MEDIA_ROOT" not in os.environ:
+    os.environ["MEDIA_ROOT"] = str(WORK_DIR / "media")
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
@@ -134,3 +159,53 @@ async def orders_websocket(websocket: WebSocket):
         if __debug__:
             print(f"[WebSocket] Erro na conexão do usuário {user_id}: {e}")
         await orders_notifier.disconnect(websocket)
+
+
+# Permite executar o servidor diretamente (útil para executável)
+if __name__ == "__main__":
+    import argparse
+    import uvicorn
+    
+    parser = argparse.ArgumentParser(description="API Sistema de Gestão de Produção (SGP)")
+    parser.add_argument("--bind", default="0.0.0.0:8000", help="Endereço e porta (ex: 0.0.0.0:8000)")
+    parser.add_argument("--workers", type=int, default=0, help="Número de workers (0 = sem workers)")
+    parser.add_argument("--loop", default="asyncio", help="Event loop (asyncio ou uvloop)")
+    
+    args = parser.parse_args()
+    
+    # Parse bind address
+    if ":" in args.bind:
+        host, port = args.bind.rsplit(":", 1)
+        port = int(port)
+    else:
+        host = args.bind
+        port = 8000
+    
+    # Se workers > 0, usar hypercorn (suporta workers no Windows)
+    if args.workers > 0:
+        try:
+            import hypercorn.asyncio
+            from hypercorn.config import Config
+            
+            config = Config()
+            config.bind = [f"{host}:{port}"]
+            config.workers = args.workers
+            config.loop = args.loop
+            
+            print(f"🚀 Iniciando API SGP com Hypercorn")
+            print(f"   Host: {host}")
+            print(f"   Porta: {port}")
+            print(f"   Workers: {args.workers}")
+            print(f"   Loop: {args.loop}")
+            print()
+            
+            hypercorn.asyncio.serve(app, config)
+        except ImportError:
+            print("⚠️  Hypercorn não encontrado. Usando Uvicorn sem workers.")
+            uvicorn.run(app, host=host, port=port, loop=args.loop)
+    else:
+        print(f"🚀 Iniciando API SGP com Uvicorn")
+        print(f"   Host: {host}")
+        print(f"   Porta: {port}")
+        print()
+        uvicorn.run(app, host=host, port=port, loop=args.loop)
