@@ -253,7 +253,7 @@
     /* Placeholder quando não há imagem */
     .image-box:not(:has(img[src]))::after,
     .image-box:has(img[src=""])::after,
-    .image-box:has(img[src*="undefined"]) ::after,
+    .image-box:has(img[src*="undefined"])::after,
     .image-box:has(img[src*="null"])::after {
       content: "Sem visualização";
       color: #9ca3af;
@@ -286,7 +286,7 @@
       display: none;
     }
 
-    /* Ocultar itens com data-show-if vazio via JS ou pré-processamento */
+    /* Ocultar itens com data-show-if vazio */
     [data-show-if=""],
     [data-show-if="false"],
     [data-show-if="null"],
@@ -357,22 +357,21 @@
 </head>
 <body>
   <!-- ============================================
-       EXEMPLO DE PÁGINA COM 3 ITENS
-       (O backend deve agrupar os itens em blocos de 3)
+       CADA PÁGINA CONTÉM 3 ITENS
        ============================================ -->
   <div class="print-page">
     <div class="items-container">
-
-      <!-- ITEM 1 - EXEMPLO PAINEL -->
-      <div class="item" data-tipo-producao="painel">
+      
+      <!-- ITEM 1 -->
+      <div class="item" data-tipo-producao="{{tipo_producao}}">
         <div class="item-header">
-          <div class="numero-pill">0000000008</div>
+          <div class="numero-pill">{{numero}}</div>
           <div class="header-info">
-            <div class="header-line1">TESTE CLIENTE</div>
+            <div class="header-line1">{{cliente}}</div>
             <div class="header-line2">
-              <span>(00) 00000-0000</span>
-              <span class="separator">•</span>
-              <span>Colatina, ES</span>
+              <span>{{telefone_cliente}}</span>
+              {{#if telefone_cliente}}{{#if cidade_estado}}<span class="separator">•</span>{{/if}}{{/if}}
+              <span>{{cidade_estado}}</span>
             </div>
           </div>
         </div>
@@ -383,9 +382,9 @@
             <div class="section">
               <div class="section-title">Descrição</div>
               <div class="section-content">
-                <div class="spec-item"><strong>TETE 1</strong></div>
-                <div class="spec-item">Dimensões: 1 x 1 → 1,00 m²</div>
-                <div class="spec-item">Quantidade: 1 unidade</div>
+                <div class="spec-item"><strong>{{descricao}}</strong></div>
+                <div class="spec-item">Dimensões: {{dimensoes}}</div>
+                <div class="spec-item">Quantidade: {{quantity}}</div>
               </div>
             </div>
 
@@ -393,142 +392,85 @@
             <div class="section">
               <div class="section-title">Especificações Técnicas</div>
               <div class="section-content">
-                <div class="spec-item"><strong>Material:</strong> Tactel Alexandre</div>
-                <div class="spec-item"><strong>Emenda:</strong> Vertical</div>
-
+                <div class="spec-item"><strong>Material:</strong> {{material}}</div>
+                <div class="spec-item"><strong>Emenda:</strong> {{emenda_label}}</div>
+                <div class="spec-item" data-show-if="{{emenda_qtd}}">Qtd. Emendas: {{emenda_qtd}}</div>
+                
+                {{#if (eq tipo_producao 'painel')}}
                 <div class="bullets">
-                  <div class="bullet-item">Acabamentos: Overloque + Elástico</div>
-                  <div class="bullet-item">Overloque: Sim</div>
-                  <div class="bullet-item">Elástico: Sim</div>
-                  <div class="bullet-item">Ilhós: Nenhum</div>
-                  <div class="bullet-item">Cordinha: Sim (12 unidades)</div>
-                  <div class="bullet-item">Qtd. Painéis: 1</div>
+                  <div class="bullet-item">Acabamentos: {{acabamentos_painel}}</div>
+                  <div class="bullet-item">Overloque: {{overloque}}</div>
+                  <div class="bullet-item">Elástico: {{elastico}}</div>
+                  <div class="bullet-item">Ilhós: {{ilhos_resumo}}</div>
+                  <div class="bullet-item">Cordinha: {{cordinha_resumo}}</div>
+                  <div class="bullet-item" data-show-if="{{quantidade_paineis}}">Qtd. Painéis: {{quantidade_paineis}}</div>
                 </div>
+                {{/if}}
+
+                {{#if (eq tipo_producao 'totem')}}
+                <div class="bullets">
+                  <div class="bullet-item">Acabamento: {{acabamento_totem_resumo}}</div>
+                  <div class="bullet-item" data-show-if="{{acabamento_totem_outro}}">Obs.: {{acabamento_totem_outro}}</div>
+                  <div class="bullet-item" data-show-if="{{quantidade_totem}}">Qtd. Totens: {{quantidade_totem}}</div>
+                </div>
+                {{/if}}
+
+                {{#if (eq tipo_producao 'lona')}}
+                <div class="bullets">
+                  <div class="bullet-item" data-show-if="{{acabamento_lona}}">Acabamento Lona: {{acabamento_lona}}</div>
+                  <div class="bullet-item" data-show-if="{{quantidade_lona}}">Qtd. Lonas: {{quantidade_lona}}</div>
+                  <div class="bullet-item" data-show-if="{{quantidade_ilhos}}">Ilhós: {{quantidade_ilhos}}</div>
+                  <div class="bullet-item" data-show-if="{{espaco_ilhos}}">Espaçamento Ilhós: {{espaco_ilhos}}</div>
+                  <div class="bullet-item" data-show-if="{{quantidade_cordinha}}">Cordinha: {{quantidade_cordinha}}</div>
+                  <div class="bullet-item" data-show-if="{{espaco_cordinha}}">Espaçamento Cordinha: {{espaco_cordinha}}</div>
+                </div>
+                {{/if}}
+
+                {{#if (eq tipo_producao 'adesivo')}}
+                <div class="bullets">
+                  <div class="bullet-item" data-show-if="{{tipo_adesivo}}">Tipo Adesivo: {{tipo_adesivo}}</div>
+                  <div class="bullet-item" data-show-if="{{quantidade_adesivo}}">Qtd. Adesivos: {{quantidade_adesivo}}</div>
+                </div>
+                {{/if}}
+
+                {{#if observacao_item}}
+                <div class="observacao-box">
+                  <div class="spec-item"><strong>⚠ Observação:</strong> {{observacao_item}}</div>
+                </div>
+                {{/if}}
 
                 <div class="two-col">
-                  <div class="spec-item"><strong>Designer:</strong> João Silva</div>
-                  <div class="spec-item"><strong>Vendedor:</strong> Maria Santos</div>
+                  <div class="spec-item" data-show-if="{{designer}}"><strong>Designer:</strong> {{designer}}</div>
+                  <div class="spec-item" data-show-if="{{vendedor}}"><strong>Vendedor:</strong> {{vendedor}}</div>
                 </div>
               </div>
             </div>
           </div>
 
+          {{#if imagem}}
           <div class="col-right">
             <div class="section-title">Visualização</div>
             <div class="image-box">
-              <img src="" alt="Preview do item" onerror="this.style.display='none';">
+              <img src="{{imagem}}" alt="Preview do item" onerror="this.style.display='none';">
             </div>
-            <div class="legend">Arte aprovada pelo cliente</div>
+            {{#if legenda_imagem}}
+            <div class="legend">{{legenda_imagem}}</div>
+            {{/if}}
           </div>
+          {{/if}}
         </div>
       </div>
 
-      <!-- ITEM 2 - EXEMPLO TOTEM -->
-      <div class="item" data-tipo-producao="totem">
-        <div class="item-header">
-          <div class="numero-pill">0000000006</div>
-          <div class="header-info">
-            <div class="header-line1">IGREJA BATISTA NOVA ALIANÇA</div>
-            <div class="header-line2">
-              <span>(27) 99984-0098</span>
-              <span class="separator">•</span>
-              <span>São Mateus, ES</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="item-body">
-          <div class="col-left">
-            <div class="section">
-              <div class="section-title">Descrição</div>
-              <div class="section-content">
-                <div class="spec-item"><strong>TOTEM DE TESTE</strong></div>
-                <div class="spec-item">Dimensões: 1 x 1 → 1,00 m²</div>
-                <div class="spec-item">Quantidade: 1 unidade</div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Especificações Técnicas</div>
-              <div class="section-content">
-                <div class="spec-item"><strong>Material:</strong> MDF 3mm</div>
-                <div class="spec-item"><strong>Emenda:</strong> Não</div>
-
-                <div class="bullets">
-                  <div class="bullet-item">Acabamento: Padrão</div>
-                  <div class="bullet-item">Qtd. Totens: 1</div>
-                </div>
-
-                <div class="observacao-box">
-                  <div class="spec-item"><strong>⚠ Observação:</strong> Entrega urgente solicitada</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+      <!-- ITEM 2 -->
+      <div class="item" data-tipo-producao="{{tipo_producao}}">
+        <!-- Repetir estrutura do ITEM 1 -->
       </div>
 
-      <!-- ITEM 3 - EXEMPLO COM IMAGEM -->
-      <div class="item" data-tipo-producao="painel">
-        <div class="item-header">
-          <div class="numero-pill">0000000005</div>
-          <div class="header-info">
-            <div class="header-line1">ROBSON CANTARELA</div>
-            <div class="header-line2">
-              <span>(27) 99641-5198</span>
-              <span class="separator">•</span>
-              <span>Colatina, ES</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="item-body">
-          <div class="col-left">
-            <div class="section">
-              <div class="section-title">Descrição</div>
-              <div class="section-content">
-                <div class="spec-item"><strong>TESTE ROBSON</strong></div>
-                <div class="spec-item">Dimensões: 5,90 x 7,90 → 46,61 m²</div>
-                <div class="spec-item">Quantidade: 1 unidade</div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Especificações Técnicas</div>
-              <div class="section-content">
-                <div class="spec-item"><strong>Material:</strong> Tactel Alexandre</div>
-                <div class="spec-item"><strong>Emenda:</strong> Vertical</div>
-                <div class="spec-item"><strong>Qtd. Emendas:</strong> 10</div>
-
-                <div class="bullets">
-                  <div class="bullet-item">Acabamentos: Overloque</div>
-                  <div class="bullet-item">Overloque: Sim</div>
-                  <div class="bullet-item">Elástico: Não</div>
-                  <div class="bullet-item">Ilhós: Sim (90 unidades)</div>
-                  <div class="bullet-item">Qtd. Painéis: 1</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="col-right">
-            <div class="section-title">Visualização</div>
-            <div class="image-box">
-              <!-- Exemplo com imagem válida -->
-              <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect fill='%23e5e7eb' width='200' height='200'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%239ca3af' font-family='sans-serif' font-size='14'%3EPreview%3C/text%3E%3C/svg%3E" alt="Preview">
-            </div>
-            <div class="legend">Arte em desenvolvimento</div>
-          </div>
-        </div>
+      <!-- ITEM 3 -->
+      <div class="item" data-tipo-producao="{{tipo_producao}}">
+        <!-- Repetir estrutura do ITEM 1 -->
       </div>
 
-    </div>
-  </div>
-
-  <!-- PÁGINA 2 (exemplo) -->
-  <div class="print-page">
-    <div class="items-container">
-      <!-- Mais 3 itens aqui... -->
     </div>
   </div>
 
