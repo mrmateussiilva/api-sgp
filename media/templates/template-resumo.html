@@ -9,7 +9,7 @@
        ============================================ */
     @page {
       size: A4 portrait;
-      margin: 15mm 15mm 10mm 15mm;
+      margin: 10mm 15mm 10mm 15mm;
     }
 
     * {
@@ -28,14 +28,13 @@
     }
 
     /* ============================================
-       ESTRUTURA DE PÁGINA (3 ITENS)
+       ESTRUTURA DE PÁGINA - EXATAMENTE 3 ITENS
        ============================================ */
     .print-page {
       width: 210mm;
-      min-height: 297mm;
+      height: 297mm;
       display: flex;
       flex-direction: column;
-      gap: 5mm;
       page-break-after: always;
       background: white;
       padding: 0;
@@ -45,22 +44,14 @@
       page-break-after: auto;
     }
 
-    .items-container {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 5mm;
-    }
-
     /* ============================================
-       CARD DO ITEM (altura fixa)
+       CARD DO ITEM - 1/3 DA PÁGINA (99mm cada)
        ============================================ */
     .item {
-      height: 91mm;
-      min-height: 91mm;
-      max-height: 91mm;
+      height: 99mm;
+      min-height: 99mm;
+      max-height: 99mm;
       border: 1.5px solid #d1d5db;
-      border-radius: 8px;
       padding: 10px 12px;
       display: flex;
       flex-direction: column;
@@ -69,7 +60,22 @@
       break-inside: avoid;
       page-break-inside: avoid;
       background: #ffffff;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+
+    .item:not(:last-child) {
+      border-bottom: none;
+    }
+
+    .item:first-child {
+      border-radius: 8px 8px 0 0;
+    }
+
+    .item:last-child {
+      border-radius: 0 0 8px 8px;
+    }
+
+    .item:only-child {
+      border-radius: 8px;
     }
 
     /* ============================================
@@ -91,7 +97,7 @@
       border-radius: 8px;
       font-weight: 700;
       font-size: 13px;
-      min-width: 75px;
+      min-width: 85px;
       text-align: center;
       letter-spacing: 0.5px;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
@@ -117,13 +123,6 @@
     .header-line2 {
       font-size: 10px;
       color: #6b7280;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .header-line2 .separator {
-      color: #d1d5db;
     }
 
     /* ============================================
@@ -132,7 +131,7 @@
     .item-body {
       flex: 1;
       display: grid;
-      grid-template-columns: 1fr 40mm;
+      grid-template-columns: 1fr 42mm;
       gap: 10px;
       overflow: hidden;
     }
@@ -155,7 +154,7 @@
     .section {
       display: flex;
       flex-direction: column;
-      gap: 5px;
+      gap: 4px;
     }
 
     .section-title {
@@ -171,12 +170,12 @@
     .section-content {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
     }
 
     .spec-item {
       font-size: 10px;
-      line-height: 1.4;
+      line-height: 1.3;
       color: #1f2937;
     }
 
@@ -189,8 +188,8 @@
     .two-col {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 4px 10px;
-      margin-top: 4px;
+      gap: 3px 10px;
+      margin-top: 3px;
     }
 
     /* ============================================
@@ -199,14 +198,15 @@
     .bullets {
       display: flex;
       flex-direction: column;
-      gap: 3px;
+      gap: 2px;
+      margin-top: 2px;
     }
 
     .bullets .bullet-item {
       padding-left: 12px;
       position: relative;
       font-size: 10px;
-      line-height: 1.35;
+      line-height: 1.3;
     }
 
     .bullets .bullet-item::before {
@@ -232,7 +232,7 @@
 
     .image-box {
       width: 100%;
-      height: 58mm;
+      flex: 1;
       border: 1px dashed #d1d5db;
       border-radius: 6px;
       display: flex;
@@ -241,6 +241,7 @@
       background: #ffffff;
       overflow: hidden;
       position: relative;
+      min-height: 50mm;
     }
 
     .image-box img {
@@ -300,9 +301,9 @@
     .observacao-box {
       background: #fef3c7;
       border-left: 3px solid #f59e0b;
-      padding: 6px 8px;
+      padding: 5px 8px;
       border-radius: 4px;
-      margin-top: 4px;
+      margin-top: 3px;
     }
 
     .observacao-box .spec-item {
@@ -336,7 +337,7 @@
     @media screen and (max-width: 768px) {
       .print-page {
         width: 100%;
-        min-height: auto;
+        height: auto;
       }
 
       .item {
@@ -357,10 +358,10 @@
 </head>
 <body>
   <!-- ============================================
-       CADA PÁGINA CONTÉM 3 ITENS
+       CADA PÁGINA CONTÉM EXATAMENTE 3 ITENS
+       Cada item ocupa 99mm (1/3 de 297mm)
        ============================================ -->
   <div class="print-page">
-    <div class="items-container">
       
       <!-- ITEM 1 -->
       <div class="item" data-tipo-producao="{{tipo_producao}}">
@@ -368,11 +369,7 @@
           <div class="numero-pill">{{numero}}</div>
           <div class="header-info">
             <div class="header-line1">{{cliente}}</div>
-            <div class="header-line2">
-              <span>{{telefone_cliente}}</span>
-              {{#if telefone_cliente}}{{#if cidade_estado}}<span class="separator">•</span>{{/if}}{{/if}}
-              <span>{{cidade_estado}}</span>
-            </div>
+            <div class="header-line2">{{telefone_cliente}}{{#if telefone_cliente}}{{#if cidade_estado}} • {{/if}}{{/if}}{{cidade_estado}}</div>
           </div>
         </div>
 
@@ -463,15 +460,14 @@
 
       <!-- ITEM 2 -->
       <div class="item" data-tipo-producao="{{tipo_producao}}">
-        <!-- Repetir estrutura do ITEM 1 -->
+        <!-- Mesma estrutura do ITEM 1 -->
       </div>
 
       <!-- ITEM 3 -->
       <div class="item" data-tipo-producao="{{tipo_producao}}">
-        <!-- Repetir estrutura do ITEM 1 -->
+        <!-- Mesma estrutura do ITEM 1 -->
       </div>
 
-    </div>
   </div>
 
 </body>
