@@ -1,6 +1,6 @@
 [project]
 name = "api-sistemas-fichas"
-version = "0.1.0"
+version = "1.0.3"
 description = "API completa para gerenciamento de sistema de fichas de produção"
 readme = "README.md"
 requires-python = ">=3.12"
