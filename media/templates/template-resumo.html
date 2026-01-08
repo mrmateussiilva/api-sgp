@@ -1,247 +1,536 @@
-<style>
-  .template-page {
-    width: 187mm;
-    height: 280mm; /* 140mm * 2 itens = 280mm */
-    max-height: 280mm;
-    padding: 0;
-    box-sizing: border-box;
-    background: white;
-    overflow: hidden !important;
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    page-break-after: always !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-    margin: 0;
-  }
-
-  .item-container {
-    width: 100%;
-    height: 140mm; /* Altura de cada item */
-    max-height: 140mm;
-    min-height: 140mm;
-    padding: 2mm;
-    border: none;
-    border-bottom: 1px solid #ddd;
-    border-radius: 0;
-    box-sizing: border-box;
-    background: #fafafa;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    flex-shrink: 0;
-    margin: 0;
-  }
-
-  .item-container:last-child {
-    border-bottom: none;
-  }
-
-  .header-section {
-    display: flex;
-    align-items: flex-start;
-    margin-bottom: 4mm;
-    border-bottom: 1px solid #ddd;
-    padding-bottom: 2mm;
-    flex-shrink: 0;
-  }
-
-  .id-box {
-    background: #1a1a1a;
-    color: white;
-    padding: 3mm 5mm;
-    font-weight: bold;
-    font-size: 14pt;
-    margin-right: 4mm;
-    min-width: 25mm;
-    text-align: center;
-    border-radius: 2mm;
-  }
-
-  .cliente-info {
-    flex: 1;
-    font-size: 9pt;
-  }
-
-  .cliente-nome {
-    font-weight: bold;
-    font-size: 10pt;
-    margin-bottom: 1mm;
-  }
-
-  .cliente-detalhes {
-    color: #666;
-    font-size: 8pt;
-  }
-
-  .content-wrapper {
-    display: flex;
-    gap: 3mm;
-    flex: 1;
-    overflow: hidden;
-  }
-
-  .left-column {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .right-column {
-    width: 55mm;
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .section-title {
-    font-weight: bold;
-    font-size: 8pt;
-    text-transform: uppercase;
-    margin-bottom: 2mm;
-    color: #333;
-    border-bottom: 1px solid #ddd;
-    padding-bottom: 1mm;
-  }
-
-  .section-content {
-    flex: 1;
-    font-size: 8pt;
-    line-height: 1.4;
-    overflow: visible;
-    max-height: none;
-  }
-
-  .spec-item {
-    margin-bottom: 0.5mm;
-    font-size: 8pt;
-    line-height: 1.3;
-  }
-
-  .spec-item.hidden-empty {
-    display: none;
-  }
-
-  .image-container {
-    width: 100%;
-    height: 80mm;
-    border: 1px solid #ddd;
-    border-radius: 2mm;
-    overflow: hidden;
-    background: #f9f9f9;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .image-container img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-  }
-
-  .observacao-box {
-    margin-top: 2mm;
-    padding: 2mm;
-    background: #fff;
-    border: 1px solid #ddd;
-    border-radius: 2mm;
-    font-size: 8pt;
-    min-height: 15mm;
-  }
-
-  @media print {
-    .template-page {
-      page-break-inside: avoid !important;
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <style>
+    /* ============================================
+       CONFIGURAÇÃO DE PÁGINA
+       ============================================ */
+    @page {
+      size: A4 portrait;
+      margin: 15mm 15mm 10mm 15mm;
     }
-    .item-container {
-      page-break-inside: avoid !important;
+
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
-  }
-</style>
 
-<div class="template-page" data-tipo-producao="{{tipo_producao}}">
-  <div class="item-container">
-    <div class="header-section">
-      <div class="id-box">{{numero}}</div>
-      <div class="cliente-info">
-        <div class="cliente-nome">{{cliente}}</div>
-        <div class="cliente-detalhes">
-          {{telefone_cliente}}{{#if telefone_cliente}}{{#if cidade_estado}} • {{/if}}{{/if}}{{cidade_estado}}
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 10px;
+      color: #1a1a1a;
+      background: #f5f5f5;
+    }
+
+    /* ============================================
+       ESTRUTURA DE PÁGINA (3 ITENS)
+       ============================================ */
+    .print-page {
+      width: 210mm;
+      min-height: 297mm;
+      display: flex;
+      flex-direction: column;
+      gap: 5mm;
+      page-break-after: always;
+      background: white;
+      padding: 0;
+    }
+
+    .print-page:last-child {
+      page-break-after: auto;
+    }
+
+    .items-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 5mm;
+    }
+
+    /* ============================================
+       CARD DO ITEM (altura fixa)
+       ============================================ */
+    .item {
+      height: 91mm;
+      min-height: 91mm;
+      max-height: 91mm;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow: hidden;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+
+    /* ============================================
+       CABEÇALHO DO ITEM
+       ============================================ */
+    .item-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #e5e7eb;
+      flex-shrink: 0;
+    }
+
+    .numero-pill {
+      background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+      color: #ffffff;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 13px;
+      min-width: 75px;
+      text-align: center;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    }
+
+    .header-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .header-line1 {
+      font-weight: 700;
+      font-size: 12px;
+      color: #111827;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .header-line2 {
+      font-size: 10px;
+      color: #6b7280;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .header-line2 .separator {
+      color: #d1d5db;
+    }
+
+    /* ============================================
+       CORPO EM 2 COLUNAS
+       ============================================ */
+    .item-body {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 40mm;
+      gap: 10px;
+      overflow: hidden;
+    }
+
+    /* Quando não há imagem, coluna esquerda ocupa tudo */
+    .item-body:not(:has(.col-right)) {
+      grid-template-columns: 1fr;
+    }
+
+    /* ============================================
+       COLUNA ESQUERDA
+       ============================================ */
+    .col-left {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow: hidden;
+    }
+
+    .section {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .section-title {
+      font-weight: 700;
+      font-size: 10px;
+      text-transform: uppercase;
+      color: #374151;
+      letter-spacing: 0.3px;
+      padding-bottom: 3px;
+      border-bottom: 1.5px solid #e5e7eb;
+    }
+
+    .section-content {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .spec-item {
+      font-size: 10px;
+      line-height: 1.4;
+      color: #1f2937;
+    }
+
+    .spec-item strong {
+      font-weight: 600;
+      color: #111827;
+    }
+
+    /* Grade de 2 colunas para Designer/Vendedor */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 10px;
+      margin-top: 4px;
+    }
+
+    /* ============================================
+       LISTAS COM BULLETS
+       ============================================ */
+    .bullets {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .bullets .bullet-item {
+      padding-left: 12px;
+      position: relative;
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .bullets .bullet-item::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: #6b7280;
+      font-weight: bold;
+    }
+
+    /* ============================================
+       COLUNA DIREITA (VISUALIZAÇÃO)
+       ============================================ */
+    .col-right {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 8px;
+      background: #f9fafb;
+    }
+
+    .image-box {
+      width: 100%;
+      height: 58mm;
+      border: 1px dashed #d1d5db;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #ffffff;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .image-box img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    /* Placeholder quando não há imagem */
+    .image-box:not(:has(img[src]))::after,
+    .image-box:has(img[src=""])::after,
+    .image-box:has(img[src*="undefined"]) ::after,
+    .image-box:has(img[src*="null"])::after {
+      content: "Sem visualização";
+      color: #9ca3af;
+      font-size: 9px;
+      font-style: italic;
+    }
+
+    .legend {
+      font-size: 9px;
+      color: #6b7280;
+      text-align: center;
+      font-style: italic;
+      line-height: 1.3;
+    }
+
+    /* ============================================
+       OCULTAR ELEMENTOS VAZIOS
+       ============================================ */
+    .spec-item:empty,
+    .bullet-item:empty,
+    .legend:empty {
+      display: none;
+    }
+
+    /* Ocultar coluna direita se não houver imagem válida */
+    .col-right:has(.image-box img[src=""]),
+    .col-right:has(.image-box img[src*="undefined"]),
+    .col-right:has(.image-box img[src*="null"]),
+    .col-right:not(:has(img[src])) {
+      display: none;
+    }
+
+    /* Ocultar itens com data-show-if vazio via JS ou pré-processamento */
+    [data-show-if=""],
+    [data-show-if="false"],
+    [data-show-if="null"],
+    [data-show-if="undefined"] {
+      display: none !important;
+    }
+
+    /* ============================================
+       OBSERVAÇÃO DESTACADA
+       ============================================ */
+    .observacao-box {
+      background: #fef3c7;
+      border-left: 3px solid #f59e0b;
+      padding: 6px 8px;
+      border-radius: 4px;
+      margin-top: 4px;
+    }
+
+    .observacao-box .spec-item {
+      color: #92400e;
+      font-size: 9px;
+    }
+
+    /* ============================================
+       IMPRESSÃO
+       ============================================ */
+    @media print {
+      body {
+        background: white;
+      }
+
+      .print-page {
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+      }
+
+      .item {
+        box-shadow: none;
+        border-color: #d1d5db;
+      }
+    }
+
+    /* ============================================
+       RESPONSIVIDADE (para visualização web)
+       ============================================ */
+    @media screen and (max-width: 768px) {
+      .print-page {
+        width: 100%;
+        min-height: auto;
+      }
+
+      .item {
+        height: auto;
+        min-height: auto;
+        max-height: none;
+      }
+
+      .item-body {
+        grid-template-columns: 1fr;
+      }
+
+      .col-right {
+        order: -1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- ============================================
+       EXEMPLO DE PÁGINA COM 3 ITENS
+       (O backend deve agrupar os itens em blocos de 3)
+       ============================================ -->
+  <div class="print-page">
+    <div class="items-container">
+
+      <!-- ITEM 1 - EXEMPLO PAINEL -->
+      <div class="item" data-tipo-producao="painel">
+        <div class="item-header">
+          <div class="numero-pill">0000000008</div>
+          <div class="header-info">
+            <div class="header-line1">TESTE CLIENTE</div>
+            <div class="header-line2">
+              <span>(00) 00000-0000</span>
+              <span class="separator">•</span>
+              <span>Colatina, ES</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="item-body">
+          <div class="col-left">
+            <!-- DESCRIÇÃO -->
+            <div class="section">
+              <div class="section-title">Descrição</div>
+              <div class="section-content">
+                <div class="spec-item"><strong>TETE 1</strong></div>
+                <div class="spec-item">Dimensões: 1 x 1 → 1,00 m²</div>
+                <div class="spec-item">Quantidade: 1 unidade</div>
+              </div>
+            </div>
+
+            <!-- ESPECIFICAÇÕES TÉCNICAS -->
+            <div class="section">
+              <div class="section-title">Especificações Técnicas</div>
+              <div class="section-content">
+                <div class="spec-item"><strong>Material:</strong> Tactel Alexandre</div>
+                <div class="spec-item"><strong>Emenda:</strong> Vertical</div>
+
+                <div class="bullets">
+                  <div class="bullet-item">Acabamentos: Overloque + Elástico</div>
+                  <div class="bullet-item">Overloque: Sim</div>
+                  <div class="bullet-item">Elástico: Sim</div>
+                  <div class="bullet-item">Ilhós: Nenhum</div>
+                  <div class="bullet-item">Cordinha: Sim (12 unidades)</div>
+                  <div class="bullet-item">Qtd. Painéis: 1</div>
+                </div>
+
+                <div class="two-col">
+                  <div class="spec-item"><strong>Designer:</strong> João Silva</div>
+                  <div class="spec-item"><strong>Vendedor:</strong> Maria Santos</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-right">
+            <div class="section-title">Visualização</div>
+            <div class="image-box">
+              <img src="" alt="Preview do item" onerror="this.style.display='none';">
+            </div>
+            <div class="legend">Arte aprovada pelo cliente</div>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="content-wrapper">
-      <div class="left-column">
-        <div class="section-title">DESCRIÇÃO</div>
-        <div class="section-content">
-          <div class="spec-item">{{descricao}}</div>
-          <div class="spec-item">Dimensões: {{dimensoes}}</div>
-          <div class="spec-item">Quantidade: {{quantity}}</div>
+      <!-- ITEM 2 - EXEMPLO TOTEM -->
+      <div class="item" data-tipo-producao="totem">
+        <div class="item-header">
+          <div class="numero-pill">0000000006</div>
+          <div class="header-info">
+            <div class="header-line1">IGREJA BATISTA NOVA ALIANÇA</div>
+            <div class="header-line2">
+              <span>(27) 99984-0098</span>
+              <span class="separator">•</span>
+              <span>São Mateus, ES</span>
+            </div>
+          </div>
         </div>
 
-        <div class="section-title especificacoes-title">ESPECIFICAÇÕES TÉCNICAS</div>
-        <div class="section-content especificacoes-content" data-tipo-producao="{{tipo_producao}}">
-          
-          <!-- Campos comuns para todos os tipos -->
-          <div class="spec-item">Material: {{material}}</div>
-          <div class="spec-item">Emenda: {{emenda_label}}</div>
-          <div class="spec-item" data-show-if="emenda_qtd">Qtd. Emendas: {{emenda_qtd}}</div>
+        <div class="item-body">
+          <div class="col-left">
+            <div class="section">
+              <div class="section-title">Descrição</div>
+              <div class="section-content">
+                <div class="spec-item"><strong>TOTEM DE TESTE</strong></div>
+                <div class="spec-item">Dimensões: 1 x 1 → 1,00 m²</div>
+                <div class="spec-item">Quantidade: 1 unidade</div>
+              </div>
+            </div>
 
-          <!-- Campos específicos para PAINEL/TECIDO -->
-          <div class="spec-item spec-painel spec-tecido" data-tipo-producao="painel,generica">
-            <div>• Acabamentos: {{acabamentos_painel}}</div>
-            <div>• Overloque: {{overloque}}</div>
-            <div>• Elástico: {{elastico}}</div>
-            <div>• Ilhós: {{ilhos_resumo}}</div>
-            <div>• Cordinha: {{cordinha_resumo}}</div>
-            <div data-show-if="quantidade_paineis">• Qtd. Painéis: {{quantidade_paineis}}</div>
+            <div class="section">
+              <div class="section-title">Especificações Técnicas</div>
+              <div class="section-content">
+                <div class="spec-item"><strong>Material:</strong> MDF 3mm</div>
+                <div class="spec-item"><strong>Emenda:</strong> Não</div>
+
+                <div class="bullets">
+                  <div class="bullet-item">Acabamento: Padrão</div>
+                  <div class="bullet-item">Qtd. Totens: 1</div>
+                </div>
+
+                <div class="observacao-box">
+                  <div class="spec-item"><strong>⚠ Observação:</strong> Entrega urgente solicitada</div>
+                </div>
+              </div>
+            </div>
           </div>
-
-          <!-- Campos específicos para TOTEM -->
-          <div class="spec-item spec-totem" data-tipo-producao="totem">
-            <div>• Acabamento: {{acabamento_totem_resumo}}</div>
-            <div data-show-if="acabamento_totem_outro">• Observação: {{acabamento_totem_outro}}</div>
-            <div data-show-if="quantidade_totem">• Qtd. Totens: {{quantidade_totem}}</div>
-          </div>
-
-          <!-- Campos específicos para LONA -->
-          <div class="spec-item spec-lona" data-tipo-producao="lona">
-            <div data-show-if="acabamento_lona">• Acabamento Lona: {{acabamento_lona}}</div>
-            <div data-show-if="quantidade_lona">• Qtd. Lonas: {{quantidade_lona}}</div>
-            <div data-show-if="quantidade_ilhos">• Ilhós: {{quantidade_ilhos}}</div>
-            <div data-show-if="espaco_ilhos">• Espaçamento Ilhós: {{espaco_ilhos}}</div>
-            <div data-show-if="quantidade_cordinha">• Cordinha: {{quantidade_cordinha}}</div>
-            <div data-show-if="espaco_cordinha">• Espaçamento Cordinha: {{espaco_cordinha}}</div>
-          </div>
-
-          <!-- Campos específicos para ADESIVO -->
-          <div class="spec-item spec-adesivo" data-tipo-producao="adesivo">
-            <div data-show-if="tipo_adesivo">• Tipo Adesivo: {{tipo_adesivo}}</div>
-            <div data-show-if="quantidade_adesivo">• Qtd. Adesivos: {{quantidade_adesivo}}</div>
-          </div>
-
-          <!-- Campos genéricos -->
-          <div class="spec-item" data-show-if="observacao_item">Observação: {{observacao_item}}</div>
-          <div class="spec-item" data-show-if="designer">Designer: {{designer}}</div>
-          <div class="spec-item" data-show-if="vendedor">Vendedor: {{vendedor}}</div>
         </div>
       </div>
 
-      <div class="right-column">
-        <div class="section-title">VISUAL DO ITEM</div>
-        <div class="image-container">
-          <img src="{{imagem}}" alt="Item" onerror="this.style.display='none';" />
+      <!-- ITEM 3 - EXEMPLO COM IMAGEM -->
+      <div class="item" data-tipo-producao="painel">
+        <div class="item-header">
+          <div class="numero-pill">0000000005</div>
+          <div class="header-info">
+            <div class="header-line1">ROBSON CANTARELA</div>
+            <div class="header-line2">
+              <span>(27) 99641-5198</span>
+              <span class="separator">•</span>
+              <span>Colatina, ES</span>
+            </div>
+          </div>
         </div>
-        <div class="observacao-box" data-show-if="legenda_imagem">
-          {{legenda_imagem}}
+
+        <div class="item-body">
+          <div class="col-left">
+            <div class="section">
+              <div class="section-title">Descrição</div>
+              <div class="section-content">
+                <div class="spec-item"><strong>TESTE ROBSON</strong></div>
+                <div class="spec-item">Dimensões: 5,90 x 7,90 → 46,61 m²</div>
+                <div class="spec-item">Quantidade: 1 unidade</div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Especificações Técnicas</div>
+              <div class="section-content">
+                <div class="spec-item"><strong>Material:</strong> Tactel Alexandre</div>
+                <div class="spec-item"><strong>Emenda:</strong> Vertical</div>
+                <div class="spec-item"><strong>Qtd. Emendas:</strong> 10</div>
+
+                <div class="bullets">
+                  <div class="bullet-item">Acabamentos: Overloque</div>
+                  <div class="bullet-item">Overloque: Sim</div>
+                  <div class="bullet-item">Elástico: Não</div>
+                  <div class="bullet-item">Ilhós: Sim (90 unidades)</div>
+                  <div class="bullet-item">Qtd. Painéis: 1</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-right">
+            <div class="section-title">Visualização</div>
+            <div class="image-box">
+              <!-- Exemplo com imagem válida -->
+              <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect fill='%23e5e7eb' width='200' height='200'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%239ca3af' font-family='sans-serif' font-size='14'%3EPreview%3C/text%3E%3C/svg%3E" alt="Preview">
+            </div>
+            <div class="legend">Arte em desenvolvimento</div>
+          </div>
         </div>
       </div>
+
     </div>
   </div>
-</div>
+
+  <!-- PÁGINA 2 (exemplo) -->
+  <div class="print-page">
+    <div class="items-container">
+      <!-- Mais 3 itens aqui... -->
+    </div>
+  </div>
+
+</body>
+</html>
