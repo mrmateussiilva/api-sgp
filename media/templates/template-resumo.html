@@ -16,6 +16,7 @@
     gap: 0;
     margin: 0;
   }
+
   .item-container {
     width: 100%;
     height: 140mm; /* Altura de cada item */
@@ -33,12 +34,11 @@
     flex-shrink: 0;
     margin: 0;
   }
+
   .item-container:last-child {
     border-bottom: none;
   }
-  .item-container:last-child {
-    margin-bottom: 0;
-  }
+
   .header-section {
     display: flex;
     align-items: flex-start;
@@ -47,267 +47,200 @@
     padding-bottom: 2mm;
     flex-shrink: 0;
   }
+
   .id-box {
-    background: #f0f0f0;
-    padding: 3px 6px;
-    margin-right: 6px;
+    background: #1a1a1a;
+    color: white;
+    padding: 3mm 5mm;
     font-weight: bold;
-    font-size: 11pt;
-    border: 1px solid #ddd;
+    font-size: 14pt;
+    margin-right: 4mm;
+    min-width: 25mm;
+    text-align: center;
+    border-radius: 2mm;
   }
-  .client-info {
+
+  .cliente-info {
     flex: 1;
-    min-width: 0;
+    font-size: 9pt;
   }
-  .client-name {
+
+  .cliente-nome {
     font-weight: bold;
     font-size: 10pt;
-    margin-bottom: 1px;
-    word-wrap: break-word;
+    margin-bottom: 1mm;
   }
-  .client-details {
-    font-size: 8.5pt;
+
+  .cliente-detalhes {
     color: #666;
-    word-wrap: break-word;
+    font-size: 8pt;
   }
-  .delivery-info {
-    text-align: right;
-    font-size: 8.5pt;
-    white-space: nowrap;
-  }
-  .priority-high {
-    color: red;
-    font-weight: bold;
-  }
+
   .content-wrapper {
     display: flex;
-    gap: 4mm;
-    align-items: flex-start;
-    flex: 1;
-    min-height: 0;
-  }
-  .left-column {
-    width: 40%;
-    flex-shrink: 0;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
     gap: 3mm;
+    flex: 1;
+    overflow: hidden;
   }
+
+  .left-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
   .right-column {
-    width: 60%;
+    width: 55mm;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
   }
+
   .section-title {
     font-weight: bold;
-    font-size: 10pt;
+    font-size: 8pt;
+    text-transform: uppercase;
     margin-bottom: 2mm;
+    color: #333;
     border-bottom: 1px solid #ddd;
     padding-bottom: 1mm;
-    text-transform: uppercase;
-    flex-shrink: 0;
   }
+
   .section-content {
-    font-size: 9pt;
+    flex: 1;
+    font-size: 8pt;
     line-height: 1.4;
-    flex: 1;
-    overflow-y: auto;
+    overflow: visible;
+    max-height: none;
   }
-  .section-content div {
+
+  .spec-item {
     margin-bottom: 0.5mm;
+    font-size: 8pt;
+    line-height: 1.3;
   }
+
+  .spec-item.hidden-empty {
+    display: none;
+  }
+
   .image-container {
-    text-align: center;
+    width: 100%;
+    height: 80mm;
     border: 1px solid #ddd;
-    padding: 2mm;
+    border-radius: 2mm;
+    overflow: hidden;
     background: #f9f9f9;
-    margin-top: 0;
-    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 0;
-    max-height: 100%;
-    overflow: hidden;
+    flex-shrink: 0;
   }
+
   .image-container img {
-    max-width: 60%;
-    max-height: 60%;
-    width: auto;
-    height: auto;
+    max-width: 100%;
+    max-height: 100%;
     object-fit: contain;
-    object-position: center;
-    display: block;
-    image-rendering: auto;
-    aspect-ratio: auto;
   }
-  /* NOTA: Para painel/tecido, todos os campos são preservados no HTML */
-  /* Campos com classe "hidden-empty" são escondidos via CSS */
-  .spec-item.hidden-empty {
-    display: none !important;
+
+  .observacao-box {
+    margin-top: 2mm;
+    padding: 2mm;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 2mm;
+    font-size: 8pt;
+    min-height: 15mm;
   }
-  
-  /* Esconder campos baseado no tipo de produção */
-  .especificacoes-content[data-tipo-producao="totem"] .spec-painel,
-  .especificacoes-content[data-tipo-producao="totem"] .spec-tecido,
-  .especificacoes-content[data-tipo-producao="totem"] .spec-lona,
-  .especificacoes-content[data-tipo-producao="totem"] .spec-adesivo {
-    display: none;
-  }
-  .especificacoes-content[data-tipo-producao="lona"] .spec-painel,
-  .especificacoes-content[data-tipo-producao="lona"] .spec-tecido,
-  .especificacoes-content[data-tipo-producao="lona"] .spec-totem,
-  .especificacoes-content[data-tipo-producao="lona"] .spec-adesivo {
-    display: none;
-  }
-  .especificacoes-content[data-tipo-producao="adesivo"] .spec-painel,
-  .especificacoes-content[data-tipo-producao="adesivo"] .spec-tecido,
-  .especificacoes-content[data-tipo-producao="adesivo"] .spec-totem,
-  .especificacoes-content[data-tipo-producao="adesivo"] .spec-lona {
-    display: none;
-  }
-  .especificacoes-content[data-tipo-producao="painel"] .spec-totem,
-  .especificacoes-content[data-tipo-producao="painel"] .spec-lona,
-  .especificacoes-content[data-tipo-producao="painel"] .spec-adesivo,
-  .especificacoes-content[data-tipo-producao="tecido"] .spec-totem,
-  .especificacoes-content[data-tipo-producao="tecido"] .spec-lona,
-  .especificacoes-content[data-tipo-producao="tecido"] .spec-adesivo {
-    display: none;
-  }
+
   @media print {
-    @page {
-      size: 187mm 280mm; /* Largura 187mm, altura 280mm (140mm * 2) */
-      margin: 0;
-    }
-    * {
-      box-sizing: border-box;
-    }
-    body {
-      margin: 0 !important;
-      padding: 0 !important;
-    }
     .template-page {
-      overflow: hidden !important;
-      height: 280mm !important; /* Altura total: 140mm * 2 itens */
-      max-height: 280mm !important;
-      min-height: 280mm !important;
-      width: 187mm !important;
       page-break-inside: avoid !important;
-      break-inside: avoid !important;
-      page-break-after: always !important;
-      padding: 0 !important;
-      margin: 0 !important;
-      display: flex !important;
-      flex-direction: column !important;
-      gap: 0 !important;
-    }
-    .template-page:last-child {
-      page-break-after: auto !important;
     }
     .item-container {
-      height: 140mm !important; /* Altura de cada item */
-      max-height: 140mm !important;
-      min-height: 140mm !important;
-      width: 100% !important;
       page-break-inside: avoid !important;
-      break-inside: avoid !important;
-      overflow: hidden !important;
-      flex-shrink: 0 !important;
-      flex-grow: 0 !important;
-      margin: 0 !important;
-      padding: 2mm !important;
-    }
-    .item-container:nth-child(2) {
-      border-top: 1px solid #ddd !important;
     }
   }
 </style>
-<div class="item-container">
-  <!-- Cabeçalho -->
-  <div class="header-section">
-    <div class="id-box">#{{numero}}</div>
-    <div class="client-info">
-      <div class="client-name">{{cliente}}</div>
-      <div class="client-details">{{telefone_cliente}} - {{cidade_estado}}</div>
-    </div>
-    <div class="delivery-info">
-      <div>{{forma_envio}}</div>
-      <div class="priority-high">{{prioridade}}</div>
-    </div>
-  </div>
 
-  <!-- Conteúdo Principal -->
-  <div class="content-wrapper">
-    <!-- Coluna Esquerda -->
-    <div class="left-column">
-      <!-- Seção: Informações do Item -->
-      <div style="flex-shrink: 0;">
-        <div class="section-title">INFORMAÇÕES DO ITEM</div>
+<div class="template-page" data-tipo-producao="{{tipo_producao}}">
+  <div class="item-container">
+    <div class="header-section">
+      <div class="id-box">{{numero}}</div>
+      <div class="cliente-info">
+        <div class="cliente-nome">{{cliente}}</div>
+        <div class="cliente-detalhes">
+          {{telefone_cliente}}{{#if telefone_cliente}}{{#if cidade_estado}} • {{/if}}{{/if}}{{cidade_estado}}
+        </div>
+      </div>
+    </div>
+
+    <div class="content-wrapper">
+      <div class="left-column">
+        <div class="section-title">DESCRIÇÃO</div>
         <div class="section-content">
-          <div>• Tipo: {{tipo_producao}}</div>
-          <div>• Desc: {{item_name}}</div>
-          <div>• Qtd: {{quantity}}</div>
-          <div>• Dimensões: {{dimensoes}}</div>
-          <div>• Área: {{metro_quadrado}} m²</div>
-          <div>• Vendedor: {{vendedor}}</div>
-          <div>• Designer: {{designer}}</div>
-          <div>• Tecido: {{tecido}}</div>
+          <div class="spec-item">{{descricao}}</div>
+          <div class="spec-item">Dimensões: {{dimensoes}}</div>
+          <div class="spec-item">Quantidade: {{quantity}}</div>
         </div>
-      </div>
 
-      <!-- Seção: Especificações Técnicas -->
-      <div style="flex: 1; min-height: 0;">
-        <div class="section-title">ESPECIFICAÇÕES TÉCNICAS</div>
+        <div class="section-title especificacoes-title">ESPECIFICAÇÕES TÉCNICAS</div>
         <div class="section-content especificacoes-content" data-tipo-producao="{{tipo_producao}}">
-          <!-- Campos para PAINEL/TECIDO -->
-          <div class="spec-item spec-painel spec-tecido">• Acabamentos: {{acabamentos_painel}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Overloque: {{overloque}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Elástico: {{elastico}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Emenda: {{emenda}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Qtd Emendas: {{emenda_qtd}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Zíper: {{ziper}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Cordinha Extra: {{cordinha_extra}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Alcinha: {{alcinha}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Toalha Pronta: {{toalha_pronta}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Tipo Acabamento: {{tipo_acabamento}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Ilhós: {{ilhos_resumo}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Ilhós Qtd: {{quantidade_ilhos}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Espaçamento Ilhós: {{espaco_ilhos}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Cordinha: {{cordinha_resumo}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Cordinha Qtd: {{quantidade_cordinha}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Espaçamento Cordinha: {{espaco_cordinha}}</div>
-          <div class="spec-item spec-painel spec-tecido">• Painéis Qtd: {{quantidade_paineis}}</div>
-          <div class="spec-item spec-painel spec-tecido spec-totem spec-lona">• Terceirizado: {{terceirizado}}</div>
           
-          <!-- Campos para LONA -->
-          <div class="spec-item spec-lona">• Acabamento Lona: {{acabamento_lona}}</div>
-          <div class="spec-item spec-lona">• Lona Qtd: {{quantidade_lona}}</div>
-          
-          <!-- Campos para TOTEM -->
-          <div class="spec-item spec-totem">• Acabamento Totem: {{acabamento_totem_resumo}}</div>
-          <div class="spec-item spec-totem">• Acabamento Totem Outro: {{acabamento_totem_outro}}</div>
-          <div class="spec-item spec-totem">• Totem Qtd: {{quantidade_totem}}</div>
-          <div class="spec-item spec-totem">• Valor Totem: {{valor_totem}}</div>
-          <div class="spec-item spec-totem">• Outros Valores Totem: {{outros_valores_totem}}</div>
-          
-          <!-- Campos para ADESIVO -->
-          <div class="spec-item spec-adesivo">• Tipo Adesivo: {{tipo_adesivo}}</div>
-          <div class="spec-item spec-adesivo">• Adesivo Qtd: {{quantidade_adesivo}}</div>
-          
-          <!-- Campos genéricos (sempre visíveis) -->
-          <div class="spec-item">• Observação: {{observacao_item}}</div>
-          <div class="spec-item">• Legenda: {{legenda_imagem}}</div>
+          <!-- Campos comuns para todos os tipos -->
+          <div class="spec-item">Material: {{material}}</div>
+          <div class="spec-item">Emenda: {{emenda_label}}</div>
+          <div class="spec-item" data-show-if="emenda_qtd">Qtd. Emendas: {{emenda_qtd}}</div>
+
+          <!-- Campos específicos para PAINEL/TECIDO -->
+          <div class="spec-item spec-painel spec-tecido" data-tipo-producao="painel,generica">
+            <div>• Acabamentos: {{acabamentos_painel}}</div>
+            <div>• Overloque: {{overloque}}</div>
+            <div>• Elástico: {{elastico}}</div>
+            <div>• Ilhós: {{ilhos_resumo}}</div>
+            <div>• Cordinha: {{cordinha_resumo}}</div>
+            <div data-show-if="quantidade_paineis">• Qtd. Painéis: {{quantidade_paineis}}</div>
+          </div>
+
+          <!-- Campos específicos para TOTEM -->
+          <div class="spec-item spec-totem" data-tipo-producao="totem">
+            <div>• Acabamento: {{acabamento_totem_resumo}}</div>
+            <div data-show-if="acabamento_totem_outro">• Observação: {{acabamento_totem_outro}}</div>
+            <div data-show-if="quantidade_totem">• Qtd. Totens: {{quantidade_totem}}</div>
+          </div>
+
+          <!-- Campos específicos para LONA -->
+          <div class="spec-item spec-lona" data-tipo-producao="lona">
+            <div data-show-if="acabamento_lona">• Acabamento Lona: {{acabamento_lona}}</div>
+            <div data-show-if="quantidade_lona">• Qtd. Lonas: {{quantidade_lona}}</div>
+            <div data-show-if="quantidade_ilhos">• Ilhós: {{quantidade_ilhos}}</div>
+            <div data-show-if="espaco_ilhos">• Espaçamento Ilhós: {{espaco_ilhos}}</div>
+            <div data-show-if="quantidade_cordinha">• Cordinha: {{quantidade_cordinha}}</div>
+            <div data-show-if="espaco_cordinha">• Espaçamento Cordinha: {{espaco_cordinha}}</div>
+          </div>
+
+          <!-- Campos específicos para ADESIVO -->
+          <div class="spec-item spec-adesivo" data-tipo-producao="adesivo">
+            <div data-show-if="tipo_adesivo">• Tipo Adesivo: {{tipo_adesivo}}</div>
+            <div data-show-if="quantidade_adesivo">• Qtd. Adesivos: {{quantidade_adesivo}}</div>
+          </div>
+
+          <!-- Campos genéricos -->
+          <div class="spec-item" data-show-if="observacao_item">Observação: {{observacao_item}}</div>
+          <div class="spec-item" data-show-if="designer">Designer: {{designer}}</div>
+          <div class="spec-item" data-show-if="vendedor">Vendedor: {{vendedor}}</div>
         </div>
       </div>
-    </div>
 
-    <!-- Coluna Direita: Visual do Item -->
-    <div class="right-column">
-      <div class="section-title">VISUAL DO ITEM</div>
-      <div class="image-container">
-        <img src="{{imagem}}" alt="Item" />
+      <div class="right-column">
+        <div class="section-title">VISUAL DO ITEM</div>
+        <div class="image-container">
+          <img src="{{imagem}}" alt="Item" onerror="this.style.display='none';" />
+        </div>
+        <div class="observacao-box" data-show-if="legenda_imagem">
+          {{legenda_imagem}}
+        </div>
       </div>
     </div>
   </div>
