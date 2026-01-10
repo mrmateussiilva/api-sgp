@@ -165,15 +165,29 @@ async def orders_websocket(websocket: WebSocket):
                 
                 # Se for mensagem de broadcast, enviar para todos os outros clientes
                 if message.get("broadcast") and message.get("type") not in ("ping", "pong"):
-                    # Adicionar informações do usuário que enviou
-                    message["user_id"] = user_id
-                    message["username"] = user.username
+                    # Preservar user_id se já existir na mensagem, senão adicionar do remetente
+                    if "user_id" not in message:
+                        message["user_id"] = user_id
+                    if "username" not in message:
+                        message["username"] = user.username
+                    
+                    # Criar mensagem para broadcast (sem flag broadcast para evitar loops)
+                    message_to_broadcast = {k: v for k, v in message.items() if k != "broadcast"}
+                    
+                    # Obter número de clientes conectados (exceto remetente)
+                    total_connections = orders_notifier.get_connection_count()
+                    # Criar lista temporária para contar outros clientes (sem lock para evitar deadlock)
+                    other_connections_count = max(0, total_connections - 1)  # -1 para excluir o remetente
                     
                     if __debug__:
                         print(f"[WebSocket] Recebido broadcast do cliente (user_id={user_id}): type={message.get('type')}, order_id={message.get('order_id')}")
+                        print(f"[WebSocket] Total de conexões: {total_connections}, Outros clientes: {other_connections_count}")
                     
                     # Broadcast para todos os outros clientes (exceto o remetente)
-                    await orders_notifier.broadcast_except(message, exclude_websocket=websocket)
+                    # O broadcast_except já verifica se há outros clientes, então podemos chamar diretamente
+                    await orders_notifier.broadcast_except(message_to_broadcast, exclude_websocket=websocket)
+                    if __debug__:
+                        print(f"[WebSocket] ✅ Tentativa de broadcast '{message.get('type')}' concluída")
                     
             except json.JSONDecodeError:
                 # Mensagem não é JSON válido, ignorar

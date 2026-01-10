@@ -1,19 +1,122 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+# ============================================
+# ARQUIVOS SENSÍVEIS (CRÍTICO)
+# ============================================
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+credentials/
 
-# Virtual environments
-.venv
-
-# SQLite artifacts
+# ============================================
+# BANCO DE DADOS E BACKUPS
+# ============================================
+db/*.db
 db/*.db-shm
 db/*.db-wal
 db/*.db-journal
-db/banco.db
+backups/**
+!backups/
+!backups/.gitkeep
+*.db
 
-# Media uploads
-media/
+# ============================================
+# MÍDIA E UPLOADS (exceto templates)
+# ============================================
+media/**/*
+!media/.gitkeep
+!media/templates/
+!media/templates/**/*.html
+
+# ============================================
+# LOGS
+# ============================================
+logs/**
+!logs/
+!logs/.gitkeep
+*.log
+*.log.*
+service_stdout.log
+service_stderr.log
+
+# ============================================
+# ARQUIVOS TEMPORÁRIOS
+# ============================================
+tmpfile.txt
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# ============================================
+# PYTHON
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ============================================
+# TESTES E COBERTURA
+# ============================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# ============================================
+# AMBIENTES VIRTUAIS
+# ============================================
+.venv
+venv/
+ENV/
+env/
+.conda/
+
+# ============================================
+# EXECUTÁVEIS E BUILDS
+# ============================================
+*.exe
+*.dll
+*.dylib
+*.so
+*.spec
+api_sgp*.exe
+
+# ============================================
+# IDEs E EDITORES
+# ============================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# ============================================
+# SISTEMA OPERACIONAL
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ============================================
+# UV (gerenciador de pacotes)
+# ============================================
+# uv.lock pode ser versionado ou não, descomente se não quiser versionar:
+# uv.lock
