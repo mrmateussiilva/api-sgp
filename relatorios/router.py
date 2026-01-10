@@ -1,11 +1,11 @@
 """
-Router para endpoints de Templates de Relatórios.
+Router para endpoints de Templates de Relatórios e Estatísticas de Fechamentos.
 """
 
 from datetime import datetime
 from typing import Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -19,6 +19,11 @@ from .schema import (
     RelatorioTemplatesUpdate,
     RelatorioTemplateType,
     RelatorioTemplateTypeEnum,
+)
+from .fechamentos import (
+    get_fechamento_statistics,
+    get_fechamento_trends,
+    get_fechamento_by_category,
 )
 
 router = APIRouter(prefix="/relatorios", tags=["Relatórios"])
@@ -217,5 +222,100 @@ async def salvar_templates(
         await session.rollback()
         raise HTTPException(
             status_code=400, detail=f"Erro ao salvar templates: {exc}"
+        ) from exc
+
+
+# ========================================
+# Endpoints de Estatísticas de Fechamentos
+# ========================================
+
+
+@router.get("/fechamentos/statistics")
+async def obter_estatisticas_fechamentos(
+    session: AsyncSession = Depends(get_session),
+    start_date: Optional[str] = Query(None, description="Data inicial (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Data final (YYYY-MM-DD)"),
+    status: Optional[str] = Query(None, description="Status dos pedidos"),
+    date_mode: str = Query("entrega", description="Modo de data: 'entrada' ou 'entrega'"),
+    vendedor: Optional[str] = Query(None, description="Nome do vendedor"),
+    designer: Optional[str] = Query(None, description="Nome do designer"),
+    cliente: Optional[str] = Query(None, description="Nome do cliente"),
+):
+    """Obtém estatísticas de fechamentos."""
+    try:
+        stats = await get_fechamento_statistics(
+            session,
+            start_date=start_date,
+            end_date=end_date,
+            status=status,
+            date_mode=date_mode,
+            vendedor=vendedor,
+            designer=designer,
+            cliente=cliente,
+        )
+        return stats
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Erro ao calcular estatísticas: {exc}"
+        ) from exc
+
+
+@router.get("/fechamentos/trends")
+async def obter_tendencias_fechamentos(
+    session: AsyncSession = Depends(get_session),
+    start_date: Optional[str] = Query(None, description="Data inicial (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Data final (YYYY-MM-DD)"),
+    status: Optional[str] = Query(None, description="Status dos pedidos"),
+    date_mode: str = Query("entrega", description="Modo de data: 'entrada' ou 'entrega'"),
+    group_by: str = Query("day", description="Agrupamento: 'day', 'week' ou 'month'"),
+):
+    """Obtém tendências de fechamentos agrupadas por período."""
+    try:
+        trends = await get_fechamento_trends(
+            session,
+            start_date=start_date,
+            end_date=end_date,
+            status=status,
+            date_mode=date_mode,
+            group_by=group_by,
+        )
+        return {"trends": trends}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Erro ao calcular tendências: {exc}"
+        ) from exc
+
+
+@router.get("/fechamentos/rankings/{category}")
+async def obter_rankings_fechamentos(
+    category: str,
+    session: AsyncSession = Depends(get_session),
+    start_date: Optional[str] = Query(None, description="Data inicial (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Data final (YYYY-MM-DD)"),
+    status: Optional[str] = Query(None, description="Status dos pedidos"),
+    date_mode: str = Query("entrega", description="Modo de data: 'entrada' ou 'entrega'"),
+    limit: int = Query(10, ge=1, le=50, description="Número máximo de resultados"),
+):
+    """Obtém rankings por categoria (vendedor, designer, cliente, tipo_producao)."""
+    if category not in ["vendedor", "designer", "cliente", "tipo_producao"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Categoria inválida. Use: vendedor, designer, cliente ou tipo_producao",
+        )
+    
+    try:
+        rankings = await get_fechamento_by_category(
+            session,
+            category=category,
+            start_date=start_date,
+            end_date=end_date,
+            status=status,
+            date_mode=date_mode,
+            limit=limit,
+        )
+        return {"category": category, "rankings": rankings}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Erro ao calcular rankings: {exc}"
         ) from exc
 
