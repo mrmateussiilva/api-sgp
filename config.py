@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # Configurações da API
     API_V1_STR: str = ""
     PROJECT_NAME: str = "API Sistema de Fichas"
-    VERSION: str = "1.0.3"
+    VERSION: str = "1.0.5"
 
     # Configurações de CORS
     BACKEND_CORS_ORIGINS: List[str] = [
