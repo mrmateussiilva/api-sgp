@@ -1190,8 +1190,30 @@ async def listar_pedidos(
             filters = filters.where(Pedido.status == status)
 
         if cliente:
-            search = f"%{cliente.strip().lower()}%"
-            filters = filters.where(func.lower(Pedido.cliente).like(search))
+            # Normalizar cliente para busca (remover acentos e caracteres especiais)
+            import unicodedata
+            cliente_normalized = unicodedata.normalize('NFKD', cliente.strip().lower())
+            cliente_normalized = ''.join(c for c in cliente_normalized if not unicodedata.combining(c))
+            search = f"%{cliente_normalized}%"
+            
+            # Usar função REPLACE do SQLite para normalizar também a coluna cliente
+            # Substituir caracteres acentuados comuns: Ç->c, Á->a, É->e, Í->i, Ó->o, Ú->u, Ã->a, Õ->o
+            cliente_col_normalized = func.lower(Pedido.cliente)
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ç', 'c')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'á', 'a')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'à', 'a')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ã', 'a')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'â', 'a')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'é', 'e')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ê', 'e')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'í', 'i')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ó', 'o')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ô', 'o')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'õ', 'o')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ú', 'u')
+            
+            filters = filters.where(cliente_col_normalized.like(search))
+            logger.info(f"[listar_pedidos] Filtro cliente aplicado (normalizado): {search}")
 
         data_inicio = _validate_iso_date(data_inicio, "data_inicio")
         data_fim = _validate_iso_date(data_fim, "data_fim")
@@ -1202,13 +1224,16 @@ async def listar_pedidos(
         # Filtrar por data_entrega (data de entrega) em vez de data_entrada
         # Isso permite buscar pedidos pela data de entrega, mesmo que tenham sido criados em outra data
         # Apenas pedidos com data_entrega não nula serão incluídos ao filtrar por data
-        # Usar comparação direta de strings: datas ISO comparam corretamente como strings
-        # "2026-01-06" <= "2026-01-06T10:00:00" funciona porque strings comparam lexicograficamente
+        # IMPORTANTE: Só aplicar filtro de data_entrega.isnot(None) se realmente há filtro de data
+        # Isso permite buscar por cliente sem exigir data_entrega
         if data_inicio or data_fim:
+            # Quando há filtro de data, só considerar pedidos com data_entrega preenchida
             filters = filters.where(Pedido.data_entrega.isnot(None))
+            logger.info(f"[listar_pedidos] Filtro data_entrega IS NOT NULL aplicado")
         if data_inicio:
             # Comparação direta funciona: "2026-01-06" <= "2026-01-06T..." é True
             filters = filters.where(Pedido.data_entrega >= data_inicio)
+            logger.info(f"[listar_pedidos] Filtro data_inicio aplicado: data_entrega >= {data_inicio}")
         if data_fim:
             # Para incluir todo o dia, usar < (data_fim + 1 dia) 
             # Isso garante que qualquer hora do dia seja incluída
@@ -1217,11 +1242,91 @@ async def listar_pedidos(
                 fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
                 # Usar < próximo dia: "2026-01-06T23:59:59" < "2026-01-07" é True
                 filters = filters.where(Pedido.data_entrega < fim_plus_one)
+                logger.info(f"[listar_pedidos] Filtro data_fim aplicado: data_entrega < {fim_plus_one}")
             except (ValueError, TypeError):
                 # Fallback: usar <= data_fim + "T23:59:59" para incluir todo o dia
                 filters = filters.where(Pedido.data_entrega <= data_fim + "T23:59:59")
+                logger.info(f"[listar_pedidos] Filtro data_fim (fallback) aplicado: data_entrega <= {data_fim}T23:59:59")
         
         filters = filters.order_by(Pedido.data_criacao.desc()).offset(skip).limit(limit)
+        
+        # Log da query para debug
+        logger.info(f"[listar_pedidos] Executando query com filtros: skip={skip}, limit={limit}, status={status}, cliente={cliente}, data_inicio={data_inicio}, data_fim={data_fim}")
+        
+        # DEBUG: Testar query SQL direta primeiro
+        if cliente and (data_inicio or data_fim):
+            logger.info(f"[listar_pedidos] 🔍 DEBUG: Testando query SQL direta...")
+            
+            fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
+            fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
+            
+            # Normalizar cliente para busca (remover acentos)
+            import unicodedata
+            cliente_normalized = unicodedata.normalize('NFKD', cliente.strip().lower())
+            cliente_normalized = ''.join(c for c in cliente_normalized if not unicodedata.combining(c))
+            cliente_pattern = f"%{cliente_normalized}%"
+            
+            logger.info(f"[listar_pedidos] 🔍 DEBUG Parâmetros: cliente_pattern={cliente_pattern}, data_inicio={data_inicio}, data_fim={fim_plus_one}")
+            
+            debug_sql = text("""
+                SELECT COUNT(*) as total
+                FROM pedidos 
+                WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                    LOWER(cliente), 
+                    'ç', 'c'), 'á', 'a'), 'à', 'a'), 'ã', 'a'), 'â', 'a'), 'é', 'e'), 'ê', 'e'), 'í', 'i'), 'ó', 'o'), 'ú', 'u')
+                    LIKE :cliente_pattern
+                  AND data_entrega IS NOT NULL
+                  AND data_entrega >= :data_inicio
+                  AND data_entrega < :data_fim
+            """)
+            
+            debug_result = await session.execute(
+                debug_sql, 
+                {
+                    "cliente_pattern": cliente_pattern,
+                    "data_inicio": data_inicio,
+                    "data_fim": fim_plus_one
+                }
+            )
+            debug_count = debug_result.scalar()
+            logger.info(f"[listar_pedidos] 🔍 DEBUG SQL direto (normalizado) encontrou: {debug_count} pedido(s)")
+            
+            # Testar sem o filtro de cliente para verificar se o problema é o LIKE
+            debug_sql2 = text("""
+                SELECT COUNT(*) as total
+                FROM pedidos 
+                WHERE data_entrega IS NOT NULL
+                  AND data_entrega >= :data_inicio
+                  AND data_entrega < :data_fim
+            """)
+            debug_result2 = await session.execute(
+                debug_sql2, 
+                {
+                    "data_inicio": data_inicio,
+                    "data_fim": fim_plus_one
+                }
+            )
+            debug_count2 = debug_result2.scalar()
+            logger.info(f"[listar_pedidos] 🔍 DEBUG SQL SEM filtro cliente encontrou: {debug_count2} pedido(s)")
+            
+            # Testar só com o filtro de cliente
+            debug_sql3 = text("""
+                SELECT COUNT(*) as total
+                FROM pedidos 
+                WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                    LOWER(cliente), 
+                    'ç', 'c'), 'á', 'a'), 'à', 'a'), 'ã', 'a'), 'â', 'a'), 'é', 'e'), 'ê', 'e'), 'í', 'i'), 'ó', 'o'), 'ú', 'u')
+                    LIKE :cliente_pattern
+            """)
+            debug_result3 = await session.execute(
+                debug_sql3, 
+                {
+                    "cliente_pattern": cliente_pattern
+                }
+            )
+            debug_count3 = debug_result3.scalar()
+            logger.info(f"[listar_pedidos] 🔍 DEBUG SQL SÓ filtro cliente (normalizado) encontrou: {debug_count3} pedido(s)")
+        
         result = await session.exec(filters)
         
         # Tentar carregar pedidos - se falhar, usar query raw para normalizar status primeiro
@@ -1233,6 +1338,8 @@ async def listar_pedidos(
                 # Normalizar status imediatamente após carregar
                 normalize_pedido_status(pedido)
                 pedidos.append(pedido)
+            
+            logger.info(f"[listar_pedidos] Query executada com sucesso: {len(pedidos)} pedido(s) encontrado(s)")
         except Exception as load_error:
             # Se houver erro ao carregar (validação de enum), usar query SQL direta
             logger.warning(f"Erro ao carregar pedidos com SQLModel: {load_error}. Tentando query SQL direta...")
