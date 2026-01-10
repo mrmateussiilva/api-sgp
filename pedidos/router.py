@@ -24,7 +24,7 @@ from .schema import (
     PedidoImagem,
 )
 from .realtime import schedule_broadcast
-from datetime import datetime
+from datetime import datetime, timedelta
 import orjson
 from auth.security import decode_access_token
 from auth.models import User
@@ -57,7 +57,7 @@ ULTIMO_PEDIDO_ID = 0
 
 STATE_SEPARATOR = "||"
 DEFAULT_PAGE_SIZE = 50
-MAX_PAGE_SIZE = 200
+MAX_PAGE_SIZE = 10000  # Aumentado para permitir buscar todos os pedidos de uma vez
 
 
 @dataclass
@@ -308,6 +308,71 @@ def json_string_to_items(items_json: str) -> List[ItemPedido]:
     except (orjson.JSONDecodeError, Exception) as e:
         print(f"Erro ao converter JSON para items: {e}")
         return []
+
+
+def normalize_pedido_status(pedido: Pedido) -> None:
+    """Normaliza o status de um pedido carregado do banco."""
+    if not hasattr(pedido, 'status'):
+        return
+    
+    status_value = pedido.status
+    status_map = {
+        'pendente': Status.PENDENTE,
+        'em producao': Status.EM_PRODUCAO,
+        'em produção': Status.EM_PRODUCAO,
+        'em_producao': Status.EM_PRODUCAO,
+        'pronto': Status.PRONTO,
+        'entregue': Status.ENTREGUE,
+        'concluido': Status.ENTREGUE,
+        'concluído': Status.ENTREGUE,
+        'cancelado': Status.CANCELADO,
+    }
+    
+    try:
+        if isinstance(status_value, str):
+            normalized = status_value.lower().strip()
+            object.__setattr__(pedido, 'status', status_map.get(normalized, Status.PENDENTE))
+        elif not isinstance(status_value, Status) and status_value is not None:
+            object.__setattr__(pedido, 'status', Status.PENDENTE)
+    except (ValueError, TypeError, AttributeError):
+        object.__setattr__(pedido, 'status', Status.PENDENTE)
+
+
+def pedido_to_response_dict(pedido: Pedido, items: List[ItemPedido]) -> dict:
+    """Converte um objeto Pedido para dicionário para criar PedidoResponse."""
+    cidade, estado = decode_city_state(pedido.cidade_cliente)
+    
+    return {
+        'id': pedido.id,
+        'numero': pedido.numero,
+        'data_entrada': pedido.data_entrada,
+        'data_entrega': pedido.data_entrega,
+        'observacao': pedido.observacao,
+        'prioridade': pedido.prioridade,
+        'status': pedido.status,  # Já normalizado por normalize_pedido_status
+        'cliente': pedido.cliente,
+        'telefone_cliente': pedido.telefone_cliente,
+        'cidade_cliente': cidade,
+        'estado_cliente': estado,
+        'valor_total': pedido.valor_total,
+        'valor_frete': pedido.valor_frete,
+        'valor_itens': pedido.valor_itens,
+        'tipo_pagamento': pedido.tipo_pagamento,
+        'obs_pagamento': pedido.obs_pagamento,
+        'forma_envio': pedido.forma_envio,
+        'forma_envio_id': pedido.forma_envio_id,
+        'financeiro': pedido.financeiro,
+        'conferencia': pedido.conferencia,
+        'sublimacao': pedido.sublimacao,
+        'costura': pedido.costura,
+        'expedicao': pedido.expedicao,
+        'pronto': pedido.pronto,
+        'sublimacao_maquina': pedido.sublimacao_maquina,
+        'sublimacao_data_impressao': pedido.sublimacao_data_impressao,
+        'items': items,
+        'data_criacao': pedido.data_criacao,
+        'ultima_atualizacao': pedido.ultima_atualizacao,
+    }
 
 
 def resolve_item_identifier(item_dict: dict[str, Any]) -> Optional[str]:
@@ -1092,10 +1157,18 @@ def _validate_iso_date(value: Optional[str], field_name: str) -> Optional[str]:
     if not value:
         return None
     try:
-        datetime.fromisoformat(value)
-        return value
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"{field_name} inválida: {value}")
+        # Aceitar tanto formato YYYY-MM-DD quanto formato ISO completo
+        value = value.strip()
+        if len(value) == 10 and value.count('-') == 2:
+            # Formato YYYY-MM-DD - validar e retornar como está
+            datetime.strptime(value, "%Y-%m-%d")
+            return value
+        else:
+            # Formato ISO completo - validar e extrair apenas a data
+            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            return dt.strftime("%Y-%m-%d")
+    except (ValueError, AttributeError) as e:
+        raise HTTPException(status_code=400, detail=f"{field_name} inválida: {value}. Use o formato YYYY-MM-DD.")
 
 
 @router.get("/", response_model=List[PedidoResponse])
@@ -1126,14 +1199,145 @@ async def listar_pedidos(
         if data_inicio and data_fim and data_inicio > data_fim:
             raise HTTPException(status_code=400, detail="data_inicio deve ser menor ou igual a data_fim")
 
+        # Filtrar por data_entrega (data de entrega) em vez de data_entrada
+        # Isso permite buscar pedidos pela data de entrega, mesmo que tenham sido criados em outra data
+        # Apenas pedidos com data_entrega não nula serão incluídos ao filtrar por data
+        # Usar comparação direta de strings: datas ISO comparam corretamente como strings
+        # "2026-01-06" <= "2026-01-06T10:00:00" funciona porque strings comparam lexicograficamente
+        if data_inicio or data_fim:
+            filters = filters.where(Pedido.data_entrega.isnot(None))
         if data_inicio:
-            filters = filters.where(Pedido.data_entrada >= data_inicio)
+            # Comparação direta funciona: "2026-01-06" <= "2026-01-06T..." é True
+            filters = filters.where(Pedido.data_entrega >= data_inicio)
         if data_fim:
-            filters = filters.where(Pedido.data_entrada <= data_fim)
-
+            # Para incluir todo o dia, usar < (data_fim + 1 dia) 
+            # Isso garante que qualquer hora do dia seja incluída
+            try:
+                fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
+                fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                # Usar < próximo dia: "2026-01-06T23:59:59" < "2026-01-07" é True
+                filters = filters.where(Pedido.data_entrega < fim_plus_one)
+            except (ValueError, TypeError):
+                # Fallback: usar <= data_fim + "T23:59:59" para incluir todo o dia
+                filters = filters.where(Pedido.data_entrega <= data_fim + "T23:59:59")
+        
         filters = filters.order_by(Pedido.data_criacao.desc()).offset(skip).limit(limit)
         result = await session.exec(filters)
-        pedidos = result.all()
+        
+        # Tentar carregar pedidos - se falhar, usar query raw para normalizar status primeiro
+        try:
+            pedidos_raw = result.all()
+            # Normalizar status ANTES de qualquer operação que possa acionar validação
+            pedidos = []
+            for pedido in pedidos_raw:
+                # Normalizar status imediatamente após carregar
+                normalize_pedido_status(pedido)
+                pedidos.append(pedido)
+        except Exception as load_error:
+            # Se houver erro ao carregar (validação de enum), usar query SQL direta
+            logger.warning(f"Erro ao carregar pedidos com SQLModel: {load_error}. Tentando query SQL direta...")
+            
+            # Construir query SQL manualmente
+            where_clauses = []
+            params = []
+            param_idx = 1
+            
+            if status:
+                where_clauses.append(f"status = ${param_idx}")
+                params.append(status.value)
+                param_idx += 1
+            
+            if cliente:
+                where_clauses.append(f"LOWER(cliente) LIKE ${param_idx}")
+                params.append(f"%{cliente.strip().lower()}%")
+                param_idx += 1
+            
+            if data_inicio:
+                where_clauses.append(f"data_entrega >= ${param_idx}")
+                params.append(data_inicio)
+                param_idx += 1
+            
+            if data_fim:
+                fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
+                fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                where_clauses.append(f"data_entrega < ${param_idx}")
+                params.append(fim_plus_one)
+                param_idx += 1
+            
+            where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+            
+            # Query SQL com normalização de status
+            sql_query = text(f"""
+                SELECT 
+                    id, numero, data_entrada, COALESCE(data_entrega, data_entrada) as data_entrega,
+                    observacao, prioridade,
+                    CASE LOWER(COALESCE(status, 'pendente'))
+                        WHEN 'pendente' THEN 'pendente'
+                        WHEN 'em producao' THEN 'em_producao'
+                        WHEN 'em produção' THEN 'em_producao'
+                        WHEN 'em_producao' THEN 'em_producao'
+                        WHEN 'pronto' THEN 'pronto'
+                        WHEN 'entregue' THEN 'entregue'
+                        WHEN 'concluido' THEN 'entregue'
+                        WHEN 'concluído' THEN 'entregue'
+                        WHEN 'cancelado' THEN 'cancelado'
+                        ELSE 'pendente'
+                    END as status,
+                    cliente, telefone_cliente, cidade_cliente,
+                    valor_total, valor_frete, valor_itens,
+                    tipo_pagamento, obs_pagamento, forma_envio, forma_envio_id,
+                    financeiro, conferencia, sublimacao, costura, expedicao, pronto,
+                    sublimacao_maquina, sublimacao_data_impressao, items,
+                    data_criacao, ultima_atualizacao
+                FROM pedidos
+                WHERE {where_sql}
+                ORDER BY data_criacao DESC
+                LIMIT {limit} OFFSET {skip}
+            """)
+            
+            # Executar query e criar objetos Pedido manualmente
+            raw_result = await session.execute(sql_query, params)
+            rows = raw_result.fetchall()
+            
+            pedidos = []
+            for row in rows:
+                try:
+                    # Criar objeto Pedido a partir da row
+                    pedido_dict = {
+                        'id': row[0],
+                        'numero': row[1],
+                        'data_entrada': row[2],
+                        'data_entrega': row[3],
+                        'observacao': row[4],
+                        'prioridade': row[5],
+                        'status': Status(row[6]),  # Status já normalizado na query
+                        'cliente': row[7],
+                        'telefone_cliente': row[8],
+                        'cidade_cliente': row[9],
+                        'valor_total': row[10],
+                        'valor_frete': row[11],
+                        'valor_itens': row[12],
+                        'tipo_pagamento': row[13],
+                        'obs_pagamento': row[14],
+                        'forma_envio': row[15],
+                        'forma_envio_id': row[16],
+                        'financeiro': bool(row[17]),
+                        'conferencia': bool(row[18]),
+                        'sublimacao': bool(row[19]),
+                        'costura': bool(row[20]),
+                        'expedicao': bool(row[21]),
+                        'pronto': bool(row[22]),
+                        'sublimacao_maquina': row[23],
+                        'sublimacao_data_impressao': row[24],
+                        'items': row[25],
+                        'data_criacao': row[26],
+                        'ultima_atualizacao': row[27],
+                    }
+                    pedido = Pedido(**pedido_dict)
+                    pedidos.append(pedido)
+                except Exception as e:
+                    logger.error(f"Erro ao criar pedido da row: {e}", exc_info=True)
+                    continue
         
         # Converter items de JSON string para objetos (otimizado: batch)
         pedidos_items: dict[int, List[ItemPedido]] = {}
@@ -1145,21 +1349,23 @@ async def listar_pedidos(
         # Buscar todas as imagens de uma vez (evita N+1 queries)
         await populate_items_with_image_paths_batch(session, pedidos, pedidos_items)
         
-        # Montar resposta
+        # Montar resposta - criar PedidoResponse diretamente do objeto
         response_pedidos = []
         for pedido in pedidos:
-            pedido_dict = pedido.model_dump()
-            cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
-            pedido_dict['cidade_cliente'] = cidade
-            pedido_dict['estado_cliente'] = estado
-            if pedido.id is not None:
-                pedido_dict['items'] = pedidos_items.get(pedido.id, [])
-            response_pedido = PedidoResponse(**pedido_dict)
-            response_pedidos.append(response_pedido)
+            try:
+                items = pedidos_items.get(pedido.id, []) if pedido.id is not None else []
+                pedido_data = pedido_to_response_dict(pedido, items)
+                response_pedido = PedidoResponse(**pedido_data)
+                response_pedidos.append(response_pedido)
+            except Exception as e:
+                logger.error(f"Erro ao processar pedido {pedido.id if hasattr(pedido, 'id') and pedido.id else 'unknown'}: {e}", exc_info=True)
+                # Continuar com próximo pedido
+                continue
         
         return response_pedidos
         
     except Exception as e:
+        logger.exception("Erro ao listar pedidos")
         raise HTTPException(status_code=500, detail=f"Erro ao listar pedidos: {str(e)}")
 
 @router.get("/{pedido_id}", response_model=PedidoResponse)
@@ -1172,16 +1378,15 @@ async def obter_pedido(pedido_id: int, session: AsyncSession = Depends(get_sessi
         if not pedido:
             raise HTTPException(status_code=404, detail="Pedido não encontrado")
         
+        # Normalizar status ANTES de processar
+        normalize_pedido_status(pedido)
+        
         # Converter items de JSON string para objetos
         items = json_string_to_items(pedido.items)
         await populate_items_with_image_paths(session, pedido.id, items)
 
-        pedido_dict = pedido.model_dump()
-        cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
-        pedido_dict['cidade_cliente'] = cidade
-        pedido_dict['estado_cliente'] = estado
-        pedido_dict['items'] = items
-        return PedidoResponse(**pedido_dict)
+        pedido_data = pedido_to_response_dict(pedido, items)
+        return PedidoResponse(**pedido_data)
         
     except HTTPException:
         raise
@@ -1230,6 +1435,9 @@ async def atualizar_pedido(
             db_pedido = await session.get(Pedido, pedido_id)
             if not db_pedido:
                 raise HTTPException(status_code=404, detail="Pedido não encontrado")
+            
+            # Normalizar status ANTES de capturar valores
+            normalize_pedido_status(db_pedido)
             
             # 🔥 CAPTURAR VALORES ANTES DA ATUALIZAÇÃO para detectar mudanças reais
             status_fields_before = {
@@ -1316,12 +1524,11 @@ async def atualizar_pedido(
             items = json_string_to_items(db_pedido.items or "[]")
             await populate_items_with_image_paths(session, db_pedido.id, items)
             
-            pedido_dict = db_pedido.model_dump()
-            cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
-            pedido_dict['cidade_cliente'] = cidade
-            pedido_dict['estado_cliente'] = estado
-            pedido_dict['items'] = items
-            response = PedidoResponse(**pedido_dict)
+            # Normalizar status após refresh (pode ter voltado como string do banco)
+            normalize_pedido_status(db_pedido)
+            
+            pedido_data = pedido_to_response_dict(db_pedido, items)
+            response = PedidoResponse(**pedido_data)
             
             # Obter informações do usuário atual para incluir no broadcast
             user_info = await get_current_user_from_token(token, session)
@@ -1469,6 +1676,10 @@ async def listar_pedidos_por_status(status: str, session: AsyncSession = Depends
         result = await session.exec(select(Pedido).where(Pedido.status == status_enum))
         pedidos = result.all()
         
+        # Normalizar status dos pedidos ANTES de processar
+        for pedido in pedidos:
+            normalize_pedido_status(pedido)
+        
         # Converter items de JSON string para objetos (otimizado: batch)
         pedidos_items: dict[int, List[ItemPedido]] = {}
         for pedido in pedidos:
@@ -1482,14 +1693,14 @@ async def listar_pedidos_por_status(status: str, session: AsyncSession = Depends
         # Montar resposta
         response_pedidos = []
         for pedido in pedidos:
-            pedido_dict = pedido.model_dump()
-            cidade, estado = decode_city_state(pedido_dict.get('cidade_cliente'))
-            pedido_dict['cidade_cliente'] = cidade
-            pedido_dict['estado_cliente'] = estado
-            if pedido.id is not None:
-                pedido_dict['items'] = pedidos_items.get(pedido.id, [])
-            response_pedido = PedidoResponse(**pedido_dict)
-            response_pedidos.append(response_pedido)
+            try:
+                items = pedidos_items.get(pedido.id, []) if pedido.id is not None else []
+                pedido_data = pedido_to_response_dict(pedido, items)
+                response_pedido = PedidoResponse(**pedido_data)
+                response_pedidos.append(response_pedido)
+            except Exception as e:
+                logger.error(f"Erro ao processar pedido {pedido.id if hasattr(pedido, 'id') and pedido.id else 'unknown'}: {e}", exc_info=True)
+                continue
         
         return response_pedidos
         
