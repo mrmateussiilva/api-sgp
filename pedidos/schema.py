@@ -1,8 +1,9 @@
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Column
 from typing import List, Optional
 from enum import Enum
 from datetime import datetime
-from pydantic import ConfigDict, field_validator
+from pydantic import ConfigDict, field_validator, model_validator
+from sqlalchemy import TypeDecorator, String, Enum as SQLEnum
 
 class Prioridade(str, Enum):
     NORMAL = "NORMAL"
@@ -14,6 +15,122 @@ class Status(str, Enum):
     PRONTO = "pronto"
     ENTREGUE = "entregue"
     CANCELADO = "cancelado"
+
+
+class StatusType(TypeDecorator):
+    """TypeDecorator para normalizar valores de status ao carregar do banco.
+    
+    Este TypeDecorator intercepta valores do banco antes que o SQLAlchemy tente
+    converter para o enum, normalizando strings minúsculas para o enum correto.
+    """
+    impl = String
+    cache_ok = True
+    length = 50
+    
+    def load_dialect_impl(self, dialect):
+        """Retorna o tipo de banco subjacente."""
+        return dialect.type_descriptor(String(self.length))
+    
+    def process_result_value(self, value, dialect):
+        """Normaliza o valor quando é carregado do banco."""
+        if value is None:
+            return Status.PENDENTE
+        
+        # Se já é um enum, retornar diretamente
+        if isinstance(value, Status):
+            return value
+        
+        # Se for string, normalizar
+        if isinstance(value, str):
+            value_lower = value.lower().strip()
+            status_map = {
+                'pendente': Status.PENDENTE,
+                'penden': Status.PENDENTE,
+                'em producao': Status.EM_PRODUCAO,
+                'em produção': Status.EM_PRODUCAO,
+                'em_producao': Status.EM_PRODUCAO,
+                'emproducao': Status.EM_PRODUCAO,
+                'pronto': Status.PRONTO,
+                'entregue': Status.ENTREGUE,
+                'concluido': Status.ENTREGUE,
+                'concluído': Status.ENTREGUE,
+                'cancelado': Status.CANCELADO,
+            }
+            normalized = status_map.get(value_lower, Status.PENDENTE)
+            return normalized
+        
+        # Fallback
+        return Status.PENDENTE
+    
+    def process_bind_param(self, value, dialect):
+        """Normaliza o valor quando é salvo no banco."""
+        if value is None:
+            return Status.PENDENTE.value
+        
+        if isinstance(value, Status):
+            return value.value
+        
+        if isinstance(value, str):
+            value_lower = value.lower().strip()
+            status_map = {
+                'pendente': 'pendente',
+                'penden': 'pendente',
+                'em producao': 'em_producao',
+                'em produção': 'em_producao',
+                'em_producao': 'em_producao',
+                'emproducao': 'em_producao',
+                'pronto': 'pronto',
+                'entregue': 'entregue',
+                'concluido': 'entregue',
+                'concluído': 'entregue',
+                'cancelado': 'cancelado',
+            }
+            return status_map.get(value_lower, 'pendente')
+        
+        return Status.PENDENTE.value
+
+
+def _normalize_status_value(v):
+    """Função auxiliar para normalizar valores de status."""
+    if v is None:
+        return Status.PENDENTE
+    
+    # Se já for um enum Status, retornar diretamente
+    if isinstance(v, Status):
+        return v
+    
+    # Se for string, normalizar para minúsculas e mapear para o enum
+    if isinstance(v, str):
+        v_lower = v.lower().strip()
+        # Mapear strings variadas para os valores corretos do enum
+        status_map = {
+            'pendente': 'pendente',
+            'penden': 'pendente',
+            'em producao': 'em_producao',
+            'em produção': 'em_producao',
+            'em_producao': 'em_producao',
+            'emproducao': 'em_producao',
+            'pronto': 'pronto',
+            'entregue': 'entregue',
+            'concluido': 'entregue',  # "Concluido" mapeia para "entregue"
+            'concluído': 'entregue',
+            'cancelado': 'cancelado',
+        }
+        normalized_value = status_map.get(v_lower, 'pendente')
+        
+        # Converter string para enum usando o valor
+        try:
+            # Status("pendente") cria o enum usando o valor
+            return Status(normalized_value)
+        except (ValueError, TypeError):
+            # Se não funcionar, buscar manualmente pelo valor
+            for status_item in Status:
+                if status_item.value == normalized_value:
+                    return status_item
+            # Fallback: retornar o padrão
+            return Status.PENDENTE
+    
+    return v
 
 class Acabamento(SQLModel):
     overloque: bool = False
@@ -81,12 +198,32 @@ class ItemPedido(SQLModel):
 
 
 class PedidoBase(SQLModel):
+    model_config = ConfigDict(validate_assignment=True)
+    
     numero: Optional[str] = Field(default=None, index=True)
     data_entrada: str = Field(index=True)
     data_entrega: Optional[str] = Field(default=None, index=True)
     observacao: Optional[str] = None
     prioridade: Prioridade = Prioridade.NORMAL
-    status: Status = Field(default=Status.PENDENTE, index=True)
+    # Usar Status como tipo Python, mas StatusType no SQLAlchemy para normalizar no banco
+    # O TypeDecorator converte strings do banco para Status enum automaticamente
+    status: Status = Field(
+        default=Status.PENDENTE, 
+        sa_column=Column(StatusType(length=50), index=True, nullable=False)
+    )
+    
+    @field_validator('status', mode='before')
+    @classmethod
+    def normalize_status_base(cls, v):
+        """Normaliza valores de status na classe base."""
+        # O TypeDecorator já deve ter convertido para Status, mas garantimos aqui também
+        return _normalize_status_value(v)
+    
+    def __init__(self, **data):
+        # Normalizar status antes de passar para o super().__init__
+        if 'status' in data and isinstance(data['status'], str):
+            data['status'] = _normalize_status_value(data['status'])
+        super().__init__(**data)
 
     # Dados do cliente
     cliente: str = Field(index=True)
@@ -167,11 +304,36 @@ class Pedido(PedidoBase, table=True):
     data_criacao: Optional[datetime] = Field(default_factory=datetime.utcnow)
     ultima_atualizacao: Optional[datetime] = Field(default_factory=datetime.utcnow)
 
+    @model_validator(mode='before')
+    @classmethod
+    def normalize_status_before(cls, data):
+        """Normaliza valores de status antes da validação."""
+        if isinstance(data, dict) and 'status' in data:
+            data['status'] = _normalize_status_value(data['status'])
+        elif hasattr(data, '__dict__'):
+            # Se data é um objeto SQLAlchemy/SQLModel já criado
+            if hasattr(data, 'status') and isinstance(getattr(data, 'status', None), str):
+                setattr(data, 'status', _normalize_status_value(getattr(data, 'status')))
+        return data
+
+    @field_validator('status', mode='before')
+    @classmethod
+    def normalize_status(cls, v):
+        """Normaliza valores de status para minúsculas conforme o enum."""
+        return _normalize_status_value(v)
+
     @field_validator('data_criacao', 'ultima_atualizacao', mode='before')
+    @classmethod
     def parse_datetime(cls, v):
         if isinstance(v, str):
             return datetime.fromisoformat(v.replace('Z', '+00:00'))
         return v
+    
+    def __setattr__(self, name, value):
+        """Intercepta atribuição de status para normalizar."""
+        if name == 'status' and isinstance(value, str):
+            value = _normalize_status_value(value)
+        super().__setattr__(name, value)
 
 
 class PedidoImagem(SQLModel, table=True):

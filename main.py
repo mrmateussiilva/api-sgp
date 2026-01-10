@@ -13,15 +13,44 @@ else:
     BASE_DIR = Path(__file__).parent
     WORK_DIR = BASE_DIR
 
-# Garantir que diretórios necessários existam no diretório do executável
-for dir_name in ["db", "media", "logs", "backups"]:
-    (WORK_DIR / dir_name).mkdir(exist_ok=True)
+# Determinar diretório raiz da API (para releases compartilhadas)
+# Em produção, API_ROOT deve estar definido como variável de ambiente
+# Ex: C:\api (Windows) ou /opt/api (Linux)
+API_ROOT = os.environ.get("API_ROOT")
+if API_ROOT:
+    API_ROOT = Path(API_ROOT)
+else:
+    # Fallback: usar diretório atual (modo desenvolvimento)
+    API_ROOT = WORK_DIR
 
-# Ajustar variáveis de ambiente se não estiverem definidas
+# Diretório compartilhado (fora das releases)
+# Todas as versões compartilham: db, media, logs, backups
+SHARED_DIR = API_ROOT / "shared"
+
+# Criar estrutura de diretórios compartilhados se não existir
+shared_dirs = {
+    "db": SHARED_DIR / "db",
+    "media": SHARED_DIR / "media",
+    "media_pedidos": SHARED_DIR / "media" / "pedidos",
+    "media_fichas": SHARED_DIR / "media" / "fichas",
+    "media_templates": SHARED_DIR / "media" / "templates",
+    "logs": SHARED_DIR / "logs",
+    "backups": SHARED_DIR / "backups",
+}
+
+for dir_name, dir_path in shared_dirs.items():
+    dir_path.mkdir(parents=True, exist_ok=True)
+
+# Configurar variáveis de ambiente para usar diretórios compartilhados
+# Isso sobrescreve qualquer configuração anterior
+if "API_ROOT" not in os.environ:
+    os.environ["API_ROOT"] = str(API_ROOT)
 if "DATABASE_URL" not in os.environ:
-    os.environ["DATABASE_URL"] = f"sqlite:///{WORK_DIR / 'db' / 'banco.db'}"
+    os.environ["DATABASE_URL"] = f"sqlite:///{SHARED_DIR / 'db' / 'banco.db'}"
 if "MEDIA_ROOT" not in os.environ:
-    os.environ["MEDIA_ROOT"] = str(WORK_DIR / "media")
+    os.environ["MEDIA_ROOT"] = str(SHARED_DIR / "media")
+if "LOG_DIR" not in os.environ:
+    os.environ["LOG_DIR"] = str(SHARED_DIR / "logs")
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.gzip import GZipMiddleware

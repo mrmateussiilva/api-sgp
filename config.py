@@ -1,5 +1,7 @@
 from typing import List, Optional
 import warnings
+import os
+from pathlib import Path
 
 from pydantic import field_validator, SecretStr, ValidationInfo
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -7,9 +9,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+    
+    # Configurações de Diretórios Compartilhados
+    # API_ROOT deve ser definido como variável de ambiente antes de importar Settings
+    # O main.py configura isso automaticamente
+    API_ROOT: Optional[str] = None  # Ex: "C:\api" ou "/opt/api"
+    
     # Configurações do Banco de Dados
+    # O main.py configura essas variáveis de ambiente antes da importação
+    # Valores padrão são usados apenas em desenvolvimento (sem API_ROOT)
     DATABASE_URL: str = "sqlite:///db/banco.db"
     MEDIA_ROOT: str = "media"
+    LOG_DIR: str = "logs"
     MAX_IMAGE_SIZE_MB: int = 10
 
     # Configurações do ambiente

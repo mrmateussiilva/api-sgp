@@ -1,0 +1,3 @@
+# Diretório compartilhado para arquitetura de releases
+# Este arquivo mantém a estrutura de diretórios no Git
+# Os dados (db/, media/, logs/, backups/) são ignorados pelo .gitignore

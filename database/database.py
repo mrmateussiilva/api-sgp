@@ -53,6 +53,8 @@ if engine.sync_engine.url.get_backend_name() == "sqlite":
         cursor.close()
 
 
+
+
 async def create_db_and_tables():
     """
     Cria as tabelas no banco de dados apenas se não existirem.
