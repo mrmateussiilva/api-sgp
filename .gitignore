@@ -142,3 +142,9 @@ desktop.ini
 # ============================================
 # uv.lock pode ser versionado ou não, descomente se não quiser versionar:
 # uv.lock
+
+# ============================================
+# ARQUIVOS DE RELATÓRIOS GERADOS
+# ============================================
+relatorios/*.xlsx
+!relatorios/.gitkeep
