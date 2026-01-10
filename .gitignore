@@ -12,14 +12,14 @@ credentials/
 # ============================================
 # BANCO DE DADOS E BACKUPS
 # ============================================
-db/*.db
-db/*.db-shm
-db/*.db-wal
-db/*.db-journal
+#db/*.db
+#db/*.db-shm
+#db/*.db-wal
+#db/*.db-journal
 backups/**
 !backups/
 !backups/.gitkeep
-*.db
+#*.db
 
 # ============================================
 # ESTRUTURA DE RELEASES COMPARTILHADA
@@ -46,7 +46,7 @@ releases/current
 # ============================================
 # MÍDIA E UPLOADS (exceto templates)
 # ============================================
-media/**/*
+#media/**/*
 !media/.gitkeep
 !media/templates/
 !media/templates/**/*.html
