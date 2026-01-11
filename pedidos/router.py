@@ -57,7 +57,7 @@ ULTIMO_PEDIDO_ID = 0
 
 STATE_SEPARATOR = "||"
 DEFAULT_PAGE_SIZE = 50
-MAX_PAGE_SIZE = 10000  # Aumentado para permitir buscar todos os pedidos de uma vez
+MAX_PAGE_SIZE = 100000  # Limite muito alto para permitir buscar todos os pedidos
 
 
 @dataclass
@@ -1175,7 +1175,7 @@ def _validate_iso_date(value: Optional[str], field_name: str) -> Optional[str]:
 async def listar_pedidos(
     session: AsyncSession = Depends(get_session),
     skip: int = Query(0, ge=0),
-    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    limit: Optional[int] = Query(default=None, ge=1, le=MAX_PAGE_SIZE),
     status: Optional[Status] = Query(default=None),
     cliente: Optional[str] = Query(default=None),
     data_inicio: Optional[str] = Query(default=None),
@@ -1248,7 +1248,9 @@ async def listar_pedidos(
                 filters = filters.where(Pedido.data_entrega <= data_fim + "T23:59:59")
                 logger.info(f"[listar_pedidos] Filtro data_fim (fallback) aplicado: data_entrega <= {data_fim}T23:59:59")
         
-        filters = filters.order_by(Pedido.data_criacao.desc()).offset(skip).limit(limit)
+        filters = filters.order_by(Pedido.data_criacao.desc()).offset(skip)
+        if limit is not None:
+            filters = filters.limit(limit)
         
         # Log da query para debug
         logger.info(f"[listar_pedidos] Executando query com filtros: skip={skip}, limit={limit}, status={status}, cliente={cliente}, data_inicio={data_inicio}, data_fim={data_fim}")
