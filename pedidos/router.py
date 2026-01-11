@@ -1477,6 +1477,26 @@ async def listar_pedidos(
         logger.exception("Erro ao listar pedidos")
         raise HTTPException(status_code=500, detail=f"Erro ao listar pedidos: {str(e)}")
 
+
+@router.get("/total")
+async def contar_total_pedidos(
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Retorna o total de pedidos registrados no banco de dados.
+    """
+    try:
+        sql_query = text("SELECT COUNT(*) as total FROM pedidos")
+        result = await session.execute(sql_query)
+        total = result.scalar() or 0
+        
+        return {"total": total}
+        
+    except Exception as e:
+        logger.exception("Erro ao contar total de pedidos")
+        raise HTTPException(status_code=500, detail=f"Erro ao contar total de pedidos: {str(e)}")
+
+
 @router.get("/{pedido_id}", response_model=PedidoResponse)
 async def obter_pedido(pedido_id: int, session: AsyncSession = Depends(get_session)):
     """
