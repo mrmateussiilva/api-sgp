@@ -8,8 +8,9 @@ from decimal import Decimal
 from sqlmodel import select, func, and_, or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import text
+import orjson
 
-from pedidos.schema import Pedido, ItemPedido, Status
+from pedidos.schema import Pedido, ItemPedido, Status, Acabamento
 
 
 def parse_currency(value: Any) -> float:
@@ -31,17 +32,61 @@ def parse_currency(value: Any) -> float:
     return 0.0
 
 
+def normalize_acabamento(acabamento_value: Any) -> Optional[Acabamento]:
+    """Normaliza valor de acabamento para o tipo Acabamento."""
+    if isinstance(acabamento_value, Acabamento):
+        return acabamento_value
+    if isinstance(acabamento_value, dict):
+        return Acabamento(**acabamento_value)
+    return None
+
+
+def json_string_to_items(items_json: str) -> List[ItemPedido]:
+    """Converte string JSON para lista de items."""
+    if not items_json:
+        return []
+    
+    try:
+        items_data = orjson.loads(items_json)
+        normalized_items: List[ItemPedido] = []
+        for item_data in items_data:
+            acabamento = normalize_acabamento(item_data.get('acabamento'))
+            payload = {k: v for k, v in item_data.items() if k != 'acabamento'}
+            normalized_items.append(ItemPedido(**payload, acabamento=acabamento))
+        return normalized_items
+    except (orjson.JSONDecodeError, Exception) as e:
+        print(f"Erro ao converter JSON para items: {e}")
+        return []
+
+
+def get_item_value(item: ItemPedido) -> float:
+    """Calcula o valor de um item usando campos disponíveis."""
+    # Tenta subtotal primeiro (campo extra do JSON)
+    subtotal = getattr(item, 'subtotal', None)
+    if subtotal:
+        return parse_currency(subtotal)
+    
+    # Tenta calcular a partir de quantity e unit_price
+    quantity = getattr(item, 'quantity', None) or 1
+    unit_price = getattr(item, 'unit_price', None) or getattr(item, 'valor_unitario', None)
+    if unit_price:
+        return parse_currency(quantity) * parse_currency(unit_price)
+    
+    # Fallback: tenta valor_unitario sozinho
+    if hasattr(item, 'valor_unitario') and item.valor_unitario:
+        return parse_currency(item.valor_unitario)
+    
+    return 0.0
+
+
 def calculate_order_value(pedido: Pedido, items: List[ItemPedido]) -> float:
     """Calcula o valor total de um pedido."""
-    # Tenta usar total_value primeiro
-    if pedido.total_value:
-        return parse_currency(pedido.total_value)
+    # Tenta usar valor_total primeiro
+    if pedido.valor_total:
+        return parse_currency(pedido.valor_total)
     
     # Calcula a partir dos itens
-    items_sum = sum(
-        parse_currency(item.subtotal) or (parse_currency(item.quantity) * parse_currency(item.unit_price))
-        for item in items
-    )
+    items_sum = sum(get_item_value(item) for item in items)
     
     frete = parse_currency(pedido.valor_frete) or 0.0
     return items_sum + frete
@@ -107,20 +152,22 @@ async def get_filtered_orders(
     result = await session.exec(query)
     pedidos = result.all()
     
-    # Buscar itens para cada pedido
+    # Buscar itens para cada pedido (convertendo do JSON)
     pedidos_with_items = []
     for pedido in pedidos:
-        items_query = select(ItemPedido).where(ItemPedido.order_id == pedido.id)
-        items_result = await session.exec(items_query)
-        items = items_result.all()
+        # Converter items de JSON string para objetos
+        items = json_string_to_items(pedido.items or "[]")
         
         # Aplicar filtros de vendedor/designer nos itens
         if vendedor or designer:
             filtered_items = []
             for item in items:
-                if vendedor and item.vendedor and vendedor.lower() not in item.vendedor.lower():
+                item_vendedor = item.vendedor if hasattr(item, 'vendedor') else None
+                item_designer = item.designer if hasattr(item, 'designer') else None
+                
+                if vendedor and item_vendedor and vendedor.lower() not in item_vendedor.lower():
                     continue
-                if designer and item.designer and designer.lower() not in item.designer.lower():
+                if designer and item_designer and designer.lower() not in item_designer.lower():
                     continue
                 filtered_items.append(item)
             items = filtered_items
@@ -160,10 +207,7 @@ async def get_fechamento_statistics(
         frete = parse_currency(pedido.valor_frete) or 0.0
         total_frete += frete
         
-        items_value = sum(
-            parse_currency(item.subtotal) or (parse_currency(item.quantity) * parse_currency(item.unit_price))
-            for item in items
-        )
+        items_value = sum(get_item_value(item) for item in items)
         total_servico += items_value
     
     average_ticket = total_revenue / total_pedidos if total_pedidos > 0 else 0.0
@@ -226,10 +270,7 @@ async def get_fechamento_trends(
         frete = parse_currency(pedido.valor_frete) or 0.0
         trends_map[period_key]["frete"] += frete
         
-        items_value = sum(
-            parse_currency(item.subtotal) or (parse_currency(item.quantity) * parse_currency(item.unit_price))
-            for item in items
-        )
+        items_value = sum(get_item_value(item) for item in items)
         trends_map[period_key]["servico"] += items_value
     
     # Converter para lista e ordenar
@@ -281,11 +322,10 @@ async def get_fechamento_by_category(
                 }
             
             category_map[key]["pedidos"].add(pedido.id)
-            category_map[key]["items"] += item.quantity or 1
+            quantity = getattr(item, 'quantity', None) or 1
+            category_map[key]["items"] += parse_currency(quantity) if isinstance(quantity, (str, int, float)) else quantity if isinstance(quantity, (int, float)) else 1
             
-            item_value = parse_currency(item.subtotal) or (
-                parse_currency(item.quantity) * parse_currency(item.unit_price)
-            )
+            item_value = get_item_value(item)
             category_map[key]["revenue"] += item_value
     
     # Converter para lista e processar
