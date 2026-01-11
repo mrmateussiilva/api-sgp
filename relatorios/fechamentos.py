@@ -65,10 +65,23 @@ async def get_filtered_orders(
     # Filtro por data
     if start_date or end_date:
         date_field = "data_entrega" if date_mode == "entrega" else "data_entrada"
+        date_attr = getattr(Pedido, date_field)
+        
+        # Quando há filtro de data, só considerar pedidos com data preenchida
+        if date_mode == "entrega":
+            conditions.append(Pedido.data_entrega.isnot(None))
+        
         if start_date:
-            conditions.append(getattr(Pedido, date_field) >= start_date)
+            conditions.append(date_attr >= start_date)
         if end_date:
-            conditions.append(getattr(Pedido, date_field) <= end_date)
+            # Para incluir todo o dia, usar < (end_date + 1 dia)
+            try:
+                fim_date = datetime.strptime(end_date, "%Y-%m-%d")
+                fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                conditions.append(date_attr < fim_plus_one)
+            except (ValueError, TypeError):
+                # Fallback: usar <= end_date + "T23:59:59" para incluir todo o dia
+                conditions.append(date_attr <= end_date + "T23:59:59")
     
     # Filtro por status
     if status and status.lower() != "todos":
