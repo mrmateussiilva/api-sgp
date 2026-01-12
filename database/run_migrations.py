@@ -111,6 +111,7 @@ async def rollback_migration(version: str) -> bool:
 async def main():
     """Função principal"""
     import argparse
+    from database.database import engine
     
     parser = argparse.ArgumentParser(description="Executar migrations do banco de dados")
     parser.add_argument(
@@ -126,13 +127,18 @@ async def main():
     
     args = parser.parse_args()
     
-    if args.rollback:
-        success = await rollback_migration(args.rollback)
-        sys.exit(0 if success else 1)
-    else:
-        success = await run_migrations(dry_run=args.dry_run)
-        sys.exit(0 if success else 1)
+    try:
+        if args.rollback:
+            success = await rollback_migration(args.rollback)
+            return success
+        else:
+            success = await run_migrations(dry_run=args.dry_run)
+            return success
+    finally:
+        # Fechar engine explicitamente para liberar conexões
+        await engine.dispose()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    success = asyncio.run(main())
+    sys.exit(0 if success else 1)
