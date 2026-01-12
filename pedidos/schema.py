@@ -356,3 +356,6 @@ class PedidoResponse(PedidoBase):
     data_criacao: datetime
     ultima_atualizacao: datetime
     estado_cliente: Optional[str] = None
+    valor_total_calculado: Optional[str] = None  # Campo calculado: frete + itens (para validação)
+    
+    model_config = ConfigDict(extra="allow")  # Permite campos extras

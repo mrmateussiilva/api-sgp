@@ -4,7 +4,7 @@ import logging
 import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, UploadFile, File, Form
-from sqlmodel import select
+from sqlmodel import select, and_, or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import text, func
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -342,6 +342,12 @@ def pedido_to_response_dict(pedido: Pedido, items: List[ItemPedido]) -> dict:
     """Converte um objeto Pedido para dicionário para criar PedidoResponse."""
     cidade, estado = decode_city_state(pedido.cidade_cliente)
     
+    # Calcular valor_total_calculado (frete + itens) para validação
+    from relatorios.fechamentos import parse_currency
+    valor_frete_num = parse_currency(pedido.valor_frete) if pedido.valor_frete else 0.0
+    valor_itens_num = parse_currency(pedido.valor_itens) if pedido.valor_itens else 0.0
+    valor_total_calculado = valor_frete_num + valor_itens_num
+    
     return {
         'id': pedido.id,
         'numero': pedido.numero,
@@ -354,9 +360,10 @@ def pedido_to_response_dict(pedido: Pedido, items: List[ItemPedido]) -> dict:
         'telefone_cliente': pedido.telefone_cliente,
         'cidade_cliente': cidade,
         'estado_cliente': estado,
-        'valor_total': pedido.valor_total,
-        'valor_frete': pedido.valor_frete,
-        'valor_itens': pedido.valor_itens,
+        'valor_total': pedido.valor_total,  # ⚠️ USAR ESTE para somar (já inclui frete + itens)
+        'valor_frete': pedido.valor_frete,  # Apenas informativo
+        'valor_itens': pedido.valor_itens,  # Apenas informativo
+        'valor_total_calculado': f"{valor_total_calculado:.2f}",  # frete + itens (para validação)
         'tipo_pagamento': pedido.tipo_pagamento,
         'obs_pagamento': pedido.obs_pagamento,
         'forma_envio': pedido.forma_envio,
@@ -1181,9 +1188,16 @@ async def listar_pedidos(
     cliente: Optional[str] = Query(default=None),
     data_inicio: Optional[str] = Query(default=None),
     data_fim: Optional[str] = Query(default=None),
+    date_mode: str = Query("entrega", description="Modo de data: 'entrada', 'entrega' ou 'qualquer'"),
 ):
     """
     Lista todos os pedidos com seus items convertidos de volta para objetos.
+    
+    Parâmetros:
+    - date_mode: Define qual campo de data usar para filtro:
+      * 'entrada': Filtra por data_entrada
+      * 'entrega': Filtra por data_entrega (padrão)
+      * 'qualquer': Filtra por qualquer uma das duas datas (data_entrada OU data_entrega)
     """
     try:
         filters = select(Pedido)
@@ -1222,39 +1236,96 @@ async def listar_pedidos(
         if data_inicio and data_fim and data_inicio > data_fim:
             raise HTTPException(status_code=400, detail="data_inicio deve ser menor ou igual a data_fim")
 
-        # Filtrar por data_entrega (data de entrega) em vez de data_entrada
-        # Isso permite buscar pedidos pela data de entrega, mesmo que tenham sido criados em outra data
-        # Apenas pedidos com data_entrega não nula serão incluídos ao filtrar por data
-        # IMPORTANTE: Só aplicar filtro de data_entrega.isnot(None) se realmente há filtro de data
-        # Isso permite buscar por cliente sem exigir data_entrega
+        # Aplicar filtro de data conforme date_mode
         if data_inicio or data_fim:
-            # Quando há filtro de data, só considerar pedidos com data_entrega preenchida
-            filters = filters.where(Pedido.data_entrega.isnot(None))
-            logger.info(f"[listar_pedidos] Filtro data_entrega IS NOT NULL aplicado")
-        if data_inicio:
-            # Comparação direta funciona: "2026-01-06" <= "2026-01-06T..." é True
-            filters = filters.where(Pedido.data_entrega >= data_inicio)
-            logger.info(f"[listar_pedidos] Filtro data_inicio aplicado: data_entrega >= {data_inicio}")
-        if data_fim:
-            # Para incluir todo o dia, usar < (data_fim + 1 dia) 
-            # Isso garante que qualquer hora do dia seja incluída
-            try:
-                fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
-                fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
-                # Usar < próximo dia: "2026-01-06T23:59:59" < "2026-01-07" é True
-                filters = filters.where(Pedido.data_entrega < fim_plus_one)
-                logger.info(f"[listar_pedidos] Filtro data_fim aplicado: data_entrega < {fim_plus_one}")
-            except (ValueError, TypeError):
-                # Fallback: usar <= data_fim + "T23:59:59" para incluir todo o dia
-                filters = filters.where(Pedido.data_entrega <= data_fim + "T23:59:59")
-                logger.info(f"[listar_pedidos] Filtro data_fim (fallback) aplicado: data_entrega <= {data_fim}T23:59:59")
+            date_mode_normalized = (date_mode or "entrega").lower().strip()
+            
+            if date_mode_normalized == "entrada":
+                # Filtrar por data_entrada
+                if data_inicio:
+                    filters = filters.where(Pedido.data_entrada >= data_inicio)
+                    logger.info(f"[listar_pedidos] Filtro data_inicio aplicado: data_entrada >= {data_inicio}")
+                if data_fim:
+                    try:
+                        fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
+                        fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                        filters = filters.where(Pedido.data_entrada < fim_plus_one)
+                        logger.info(f"[listar_pedidos] Filtro data_fim aplicado: data_entrada < {fim_plus_one}")
+                    except (ValueError, TypeError):
+                        filters = filters.where(Pedido.data_entrada <= data_fim + "T23:59:59")
+                        logger.info(f"[listar_pedidos] Filtro data_fim (fallback) aplicado: data_entrada <= {data_fim}T23:59:59")
+            
+            elif date_mode_normalized == "qualquer":
+                # Filtrar por qualquer uma das duas datas (data_entrada OU data_entrega)
+                date_conditions = []
+                
+                if data_inicio:
+                    date_conditions.append(Pedido.data_entrada >= data_inicio)
+                    date_conditions.append(Pedido.data_entrega >= data_inicio)
+                if data_fim:
+                    try:
+                        fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
+                        fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                        date_conditions.append(Pedido.data_entrada < fim_plus_one)
+                        date_conditions.append(Pedido.data_entrega < fim_plus_one)
+                    except (ValueError, TypeError):
+                        date_conditions.append(Pedido.data_entrada <= data_fim + "T23:59:59")
+                        date_conditions.append(Pedido.data_entrega <= data_fim + "T23:59:59")
+                
+                if date_conditions:
+                    # Agrupar condições: (data_entrada OU data_entrega) dentro do intervalo
+                    if data_inicio and data_fim:
+                        # (data_entrada >= inicio AND data_entrada < fim) OR (data_entrega >= inicio AND data_entrega < fim)
+                        filters = filters.where(
+                            or_(
+                                and_(Pedido.data_entrada >= data_inicio, 
+                                     Pedido.data_entrada < (datetime.strptime(data_fim, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")),
+                                and_(Pedido.data_entrega >= data_inicio,
+                                     Pedido.data_entrega < (datetime.strptime(data_fim, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d"))
+                            )
+                        )
+                    elif data_inicio:
+                        filters = filters.where(
+                            or_(Pedido.data_entrada >= data_inicio, Pedido.data_entrega >= data_inicio)
+                        )
+                    elif data_fim:
+                        try:
+                            fim_plus_one = (datetime.strptime(data_fim, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+                            filters = filters.where(
+                                or_(Pedido.data_entrada < fim_plus_one, Pedido.data_entrega < fim_plus_one)
+                            )
+                        except (ValueError, TypeError):
+                            filters = filters.where(
+                                or_(Pedido.data_entrada <= data_fim + "T23:59:59", Pedido.data_entrega <= data_fim + "T23:59:59")
+                            )
+                    
+                    logger.info(f"[listar_pedidos] Filtro data aplicado (qualquer): date_mode=qualquer")
+            
+            else:
+                # Padrão: filtrar por data_entrega (comportamento original)
+                if data_inicio or data_fim:
+                    # Quando há filtro de data, só considerar pedidos com data_entrega preenchida
+                    filters = filters.where(Pedido.data_entrega.isnot(None))
+                    logger.info(f"[listar_pedidos] Filtro data_entrega IS NOT NULL aplicado")
+                if data_inicio:
+                    filters = filters.where(Pedido.data_entrega >= data_inicio)
+                    logger.info(f"[listar_pedidos] Filtro data_inicio aplicado: data_entrega >= {data_inicio}")
+                if data_fim:
+                    try:
+                        fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
+                        fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                        filters = filters.where(Pedido.data_entrega < fim_plus_one)
+                        logger.info(f"[listar_pedidos] Filtro data_fim aplicado: data_entrega < {fim_plus_one}")
+                    except (ValueError, TypeError):
+                        filters = filters.where(Pedido.data_entrega <= data_fim + "T23:59:59")
+                        logger.info(f"[listar_pedidos] Filtro data_fim (fallback) aplicado: data_entrega <= {data_fim}T23:59:59")
         
         filters = filters.order_by(Pedido.data_criacao.desc()).offset(skip)
         if limit is not None:
             filters = filters.limit(limit)
         
         # Log da query para debug
-        logger.info(f"[listar_pedidos] Executando query com filtros: skip={skip}, limit={limit}, status={status}, cliente={cliente}, data_inicio={data_inicio}, data_fim={data_fim}")
+        logger.info(f"[listar_pedidos] Executando query com filtros: skip={skip}, limit={limit}, status={status}, cliente={cliente}, data_inicio={data_inicio}, data_fim={data_fim}, date_mode={date_mode}")
         
         # DEBUG: Testar query SQL direta primeiro
         if cliente and (data_inicio or data_fim):
@@ -1362,17 +1433,57 @@ async def listar_pedidos(
                 params.append(f"%{cliente.strip().lower()}%")
                 param_idx += 1
             
-            if data_inicio:
-                where_clauses.append(f"data_entrega >= ${param_idx}")
-                params.append(data_inicio)
-                param_idx += 1
+            # Aplicar filtro de data conforme date_mode
+            date_mode_normalized = (date_mode or "entrega").lower().strip()
             
-            if data_fim:
-                fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
-                fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
-                where_clauses.append(f"data_entrega < ${param_idx}")
-                params.append(fim_plus_one)
-                param_idx += 1
+            if data_inicio or data_fim:
+                if date_mode_normalized == "entrada":
+                    # Filtrar por data_entrada
+                    if data_inicio:
+                        where_clauses.append(f"data_entrada >= ${param_idx}")
+                        params.append(data_inicio)
+                        param_idx += 1
+                    if data_fim:
+                        fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
+                        fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                        where_clauses.append(f"data_entrada < ${param_idx}")
+                        params.append(fim_plus_one)
+                        param_idx += 1
+                
+                elif date_mode_normalized == "qualquer":
+                    # Filtrar por qualquer uma das duas datas
+                    if data_inicio and data_fim:
+                        fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
+                        fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                        where_clauses.append(f"((data_entrada >= ${param_idx} AND data_entrada < ${param_idx + 1}) OR (data_entrega >= ${param_idx} AND data_entrega < ${param_idx + 1}))")
+                        params.append(data_inicio)
+                        params.append(fim_plus_one)
+                        param_idx += 2
+                    elif data_inicio:
+                        where_clauses.append(f"(data_entrada >= ${param_idx} OR data_entrega >= ${param_idx})")
+                        params.append(data_inicio)
+                        param_idx += 1
+                    elif data_fim:
+                        fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
+                        fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                        where_clauses.append(f"(data_entrada < ${param_idx} OR data_entrega < ${param_idx})")
+                        params.append(fim_plus_one)
+                        param_idx += 1
+                
+                else:
+                    # Padrão: filtrar por data_entrega
+                    if data_inicio or data_fim:
+                        where_clauses.append(f"data_entrega IS NOT NULL")
+                    if data_inicio:
+                        where_clauses.append(f"data_entrega >= ${param_idx}")
+                        params.append(data_inicio)
+                        param_idx += 1
+                    if data_fim:
+                        fim_date = datetime.strptime(data_fim, "%Y-%m-%d")
+                        fim_plus_one = (fim_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                        where_clauses.append(f"data_entrega < ${param_idx}")
+                        params.append(fim_plus_one)
+                        param_idx += 1
             
             where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
             
