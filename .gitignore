@@ -4,6 +4,7 @@
 .env
 .env.local
 .env.*.local
+.env.bkp
 *.pem
 *.key
 secrets/
@@ -12,17 +13,24 @@ credentials/
 # ============================================
 # BANCO DE DADOS E BACKUPS
 # ============================================
-#db/*.db
-# db/*.db-shm
-# db/*.db-wal
-# db/*.db-journal
-# backups/**
-# !backups/
-# !backups/.gitkeep
-# *.db
-# *.db-shm
-# *.db-wal
-# *.db-journal
+# Arquivos temporários do SQLite (WAL mode)
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Bancos de desenvolvimento e temporários
+db/dev.db
+db/dev.db-shm
+db/dev.db-wal
+db/dev.db-journal
+
+# Bancos de produção não devem ser versionados
+# db/*.db (comentado para permitir .gitkeep se necessário)
+
+# Backups
+backups/**
+!backups/
+!backups/.gitkeep
 
 # ============================================
 # ESTRUTURA DE RELEASES COMPARTILHADA
