@@ -143,13 +143,41 @@ async def root():
 async def health():
     """
     Endpoint de verificação de saúde da API
-    Usado para verificar se a API está online e respondendo
+    Verifica: API, banco de dados, versão
     """
-    return {
+    from database.database import engine
+    from sqlalchemy import text
+    from datetime import datetime
+    from fastapi import status as http_status
+    from fastapi.responses import JSONResponse
+    
+    status = {
         "status": "ok",
-        "message": "API is running",
-        "version": settings.VERSION
+        "version": settings.VERSION,
+        "timestamp": datetime.utcnow().isoformat(),
+        "checks": {
+            "api": "ok",
+            "database": "unknown"
+        }
     }
+    
+    # Verificar banco de dados
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text("SELECT 1"))
+            result.scalar()
+            status["checks"]["database"] = "ok"
+    except Exception as e:
+        status["status"] = "degraded"
+        status["checks"]["database"] = "error"
+        status["database_error"] = str(e)
+        # Retornar 503 em caso de erro no banco
+        return JSONResponse(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=status
+        )
+    
+    return status
 
 
 @app.websocket("/ws/orders")

@@ -59,7 +59,11 @@ async def create_db_and_tables():
     """
     Cria as tabelas no banco de dados apenas se não existirem.
     Preserva dados existentes - não recria tabelas que já existem.
+    Também garante que a tabela _migrations existe para o sistema de migrations.
     """
+    # Importar MigrationRecord para garantir que a tabela _migrations seja criada
+    from database.migrations.base import MigrationRecord  # noqa: F401
+    
     async with engine.begin() as conn:
         # Verificar se o banco já existe e tem tabelas de forma assíncrona
         def _check_existing_tables(sync_conn):
