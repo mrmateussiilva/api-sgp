@@ -103,7 +103,8 @@ app = FastAPI(
 )
 # Middleware de métricas - deve ser adicionado primeiro para capturar todo o tempo de processamento
 app.add_middleware(MetricsMiddleware)
-app.add_middleware(GZipMiddleware, minimum_size=500)
+# GZip com threshold reduzido (100 bytes) para comprimir mais respostas e reduzir tráfego de rede
+app.add_middleware(GZipMiddleware, minimum_size=100)
 
 # Configuração CORS
 app.add_middleware(
