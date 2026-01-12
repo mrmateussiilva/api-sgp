@@ -62,6 +62,7 @@ from base import create_db_and_tables
 from config import settings
 from logging_config import setup_logging
 from auth.security import extract_bearer_token, get_user_from_token
+from middleware.metrics import MetricsMiddleware
 
 # Routers
 from auth.router import router as auth_router
@@ -100,6 +101,8 @@ app = FastAPI(
     lifespan=lifespan,
     default_response_class=ORJSONResponse
 )
+# Middleware de métricas - deve ser adicionado primeiro para capturar todo o tempo de processamento
+app.add_middleware(MetricsMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # Configuração CORS
