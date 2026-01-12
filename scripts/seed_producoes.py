@@ -33,6 +33,16 @@ TIPOS_PRODUCAO_DEFAULT = [
         "active": True,
     },
     {
+        "name": "canga",
+        "description": "Canga",
+        "active": True,
+    },
+    {
+        "name": "impressao_3d",
+        "description": "Impressão 3D",
+        "active": True,
+    },
+    {
         "name": "almofada",
         "description": "Almofada",
         "active": True,
