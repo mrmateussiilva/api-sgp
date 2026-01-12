@@ -8,7 +8,7 @@ from typing import Optional, List
 
 from sqlalchemy import text
 from sqlmodel import SQLModel, Field
-from sqlmodel.ext.asyncio import AsyncSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from database.database import engine
 

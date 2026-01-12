@@ -4,7 +4,7 @@ Esta migration marca o estado inicial do banco de dados.
 Não faz alterações - apenas marca como "baseline".
 """
 from .base import Migration
-from sqlmodel.ext.asyncio import AsyncSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 
 class Migration001_InitialSchema(Migration):
