@@ -12,14 +12,17 @@ credentials/
 # ============================================
 # BANCO DE DADOS E BACKUPS
 # ============================================
-#db/*.db
-#db/*.db-shm
-#db/*.db-wal
-#db/*.db-journal
+db/*.db
+db/*.db-shm
+db/*.db-wal
+db/*.db-journal
 backups/**
 !backups/
 !backups/.gitkeep
-#*.db
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
 
 # ============================================
 # ESTRUTURA DE RELEASES COMPARTILHADA
