@@ -197,7 +197,7 @@ async def get_current_user(
     Retorna informações do usuário atual baseado no token
     """
     try:
-        if _is_token_revoked(token):
+        if await _is_token_revoked(token, db):
             raise HTTPException(status_code=401, detail="Token revogado")
 
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -217,5 +217,10 @@ async def get_current_user(
             "user_id": user_id,
             "username": username
         }
+    except HTTPException:
+        raise
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido ou expirado")
+    except Exception as e:
+        logger.exception("Erro ao obter usuário atual")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro interno ao processar solicitação")
