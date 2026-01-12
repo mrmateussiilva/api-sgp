@@ -484,7 +484,8 @@ async def apply_image_changes(
         try:
             binary_data, mime_type = decode_base64_image(upload.data_url)
         except ImageDecodingError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            logger.error("Erro ao decodificar imagem: %s", exc)
+            raise HTTPException(status_code=400, detail="Erro ao processar imagem") from exc
 
         relative_path, filename, size = await store_image_bytes(
             pedido_id,
@@ -902,8 +903,8 @@ async def upload_image_item(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Erro ao fazer upload de imagem de item: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erro ao fazer upload: {str(e)}")
+        logger.exception("Erro ao fazer upload de imagem de item: %s", e)
+        raise HTTPException(status_code=500, detail="Erro interno ao processar upload de imagem")
 
 @router.post("/save-json/{pedido_id}")
 async def salvar_pedido_json(
@@ -971,8 +972,8 @@ async def salvar_pedido_json(
         }
         
     except Exception as e:
-        print(f"[ERROR] Erro ao salvar JSON do pedido {pedido_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao salvar JSON: {str(e)}")
+        logger.exception("Erro ao salvar JSON do pedido %s", pedido_id)
+        raise HTTPException(status_code=500, detail="Erro interno ao salvar JSON do pedido")
 
 
 @router.get("/{pedido_id}/json")
@@ -1028,8 +1029,8 @@ async def obter_pedido_json(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Erro ao buscar JSON do pedido {pedido_id}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar JSON: {str(e)}")
+        logger.exception("Erro ao buscar JSON do pedido %s", pedido_id)
+        raise HTTPException(status_code=500, detail="Erro interno ao buscar JSON do pedido")
 
 
 @router.post("/", response_model=PedidoResponse)
@@ -1132,7 +1133,7 @@ async def criar_pedido(
                 await asyncio.sleep(0.1 * attempt)  # Backoff exponencial: 0.1s, 0.2s, 0.3s, 0.4s, 0.5s
                 continue
             logger.error("Erro de integridade ao criar pedido: %s", exc)
-            raise HTTPException(status_code=400, detail=f"Erro de integridade ao criar pedido: {str(exc)}") from exc
+            raise HTTPException(status_code=400, detail="Erro de integridade ao criar pedido") from exc
         except OperationalError as exc:
             await session.rollback()
             msg = str(exc.orig).lower() if getattr(exc, "orig", None) else str(exc).lower()
@@ -1147,11 +1148,11 @@ async def criar_pedido(
                 await asyncio.sleep(0.1 * attempt)  # Backoff exponencial: 0.1s, 0.2s, 0.3s, 0.4s, 0.5s
                 continue
             logger.error("Erro de banco ao criar pedido: %s", exc)
-            raise HTTPException(status_code=400, detail=f"Erro de banco ao criar pedido: {str(exc)}") from exc
+            raise HTTPException(status_code=400, detail="Erro interno ao processar pedido") from exc
         except Exception as exc:
             await session.rollback()
             logger.exception("Erro inesperado ao criar pedido: %s", exc)
-            raise HTTPException(status_code=400, detail=f"Erro ao criar pedido: {str(exc)}") from exc
+            raise HTTPException(status_code=400, detail="Erro interno ao criar pedido") from exc
 
 def _validate_iso_date(value: Optional[str], field_name: str) -> Optional[str]:
     if not value:
@@ -1475,7 +1476,7 @@ async def listar_pedidos(
         
     except Exception as e:
         logger.exception("Erro ao listar pedidos")
-        raise HTTPException(status_code=500, detail=f"Erro ao listar pedidos: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno ao listar pedidos")
 
 
 @router.get("/total")
@@ -1520,7 +1521,8 @@ async def obter_pedido(pedido_id: int, session: AsyncSession = Depends(get_sessi
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao obter pedido: {str(e)}")
+        logger.exception("Erro ao obter pedido %s", pedido_id)
+        raise HTTPException(status_code=500, detail="Erro interno ao obter pedido")
 
 @router.patch("/{pedido_id}", response_model=PedidoResponse)
 async def atualizar_pedido(
@@ -1720,11 +1722,11 @@ async def atualizar_pedido(
                 await asyncio.sleep(0.1 * attempt)  # Backoff exponencial
                 continue
             logger.error("Erro de banco ao atualizar pedido %s: %s", pedido_id, exc)
-            raise HTTPException(status_code=400, detail=f"Erro de banco ao atualizar pedido: {str(exc)}") from exc
+            raise HTTPException(status_code=400, detail="Erro interno ao processar atualização do pedido") from exc
         except Exception as exc:
             await session.rollback()
             logger.exception("Erro inesperado ao atualizar pedido %s: %s", pedido_id, exc)
-            raise HTTPException(status_code=400, detail=f"Erro ao atualizar pedido: {str(exc)}") from exc
+            raise HTTPException(status_code=400, detail="Erro interno ao atualizar pedido") from exc
 
 @router.delete("/{pedido_id}")
 async def deletar_pedido(
@@ -1755,7 +1757,8 @@ async def deletar_pedido(
         raise
     except Exception as e:
         await session.rollback()
-        raise HTTPException(status_code=500, detail=f"Erro ao deletar pedido: {str(e)}")
+        logger.exception("Erro ao deletar pedido %s", pedido_id)
+        raise HTTPException(status_code=500, detail="Erro interno ao deletar pedido")
 
 @router.delete("/all")
 async def deletar_todos_pedidos(
