@@ -17,6 +17,17 @@ class User(SQLModel, table=True):
     updated_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class RevokedToken(SQLModel, table=True):
+    """Modelo para tokens revogados (persistência de logout)"""
+
+    __tablename__ = "revoked_tokens"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    token: str = Field(unique=True, index=True)
+    expires_at: datetime
+    revoked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class UserCreate(SQLModel):
     """Schema para criar usuário"""
     username: str
@@ -31,4 +42,3 @@ class UserResponse(SQLModel):
     is_admin: bool
     is_active: bool
     created_at: Optional[datetime] = None
-

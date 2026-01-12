@@ -336,7 +336,8 @@ async def criar_ficha(
                 session.add(db_ficha)
             except ImageStorageError as exc:
                 await session.rollback()
-                raise HTTPException(status_code=400, detail=f"Erro ao salvar imagem: {str(exc)}")
+                logger.error("Erro ao salvar imagem: %s", exc)
+                raise HTTPException(status_code=400, detail="Erro ao processar imagem")
         
         await session.commit()
         await session.refresh(db_ficha)
@@ -348,7 +349,8 @@ async def criar_ficha(
         raise
     except Exception as e:
         await session.rollback()
-        raise HTTPException(status_code=400, detail=f"Erro ao criar ficha: {str(e)}")
+        logger.exception("Erro ao criar ficha")
+        raise HTTPException(status_code=400, detail="Erro interno ao criar ficha")
 
 
 @router.get("/", response_model=list[FichaResponse])
@@ -368,7 +370,8 @@ async def listar_fichas(
         return [_build_ficha_response(ficha) for ficha in fichas]
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao listar fichas: {str(e)}")
+        logger.exception("Erro ao listar fichas")
+        raise HTTPException(status_code=500, detail="Erro interno ao listar fichas")
 
 
 @router.get("/templates", response_model=FichaTemplatesResponse)
@@ -393,10 +396,8 @@ async def obter_templates(
             }
         ) from e
     except Exception as exc:
-        logger.exception(f"Erro ao carregar templates: {exc}")
-        import traceback
-        logger.error(f"Traceback completo: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Erro ao carregar templates: {exc}") from exc
+        logger.exception("Erro ao carregar templates: %s", exc)
+        raise HTTPException(status_code=500, detail="Erro interno ao carregar templates") from exc
 
 
 @router.put("/templates", response_model=FichaTemplatesResponse)

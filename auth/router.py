@@ -1,4 +1,5 @@
 import bcrypt
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
@@ -12,6 +13,8 @@ from auth import schema as auth_schema
 from auth.models import User
 from database.database import get_session
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored")
@@ -51,22 +54,53 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
-def _cleanup_revoked_tokens() -> None:
+async def _cleanup_revoked_tokens(session: AsyncSession) -> None:
     """Remove tokens expirados do registro de revogação."""
     now = datetime.now(timezone.utc)
-    expired = [token for token, exp in revoked_tokens.items() if exp <= now]
-    for token in expired:
-        revoked_tokens.pop(token, None)
+    statement = select(RevokedToken).where(RevokedToken.expires_at <= now)
+    result = await session.exec(statement)
+    expired_tokens = result.all()
+    for token in expired_tokens:
+        await session.delete(token)
+    await session.commit()
 
 
-def _is_token_revoked(token: str) -> bool:
-    _cleanup_revoked_tokens()
-    return token in revoked_tokens
+async def _is_token_revoked(token: str, session: AsyncSession) -> bool:
+    """Verifica se um token foi revogado (persistido no banco)."""
+    statement = select(RevokedToken).where(RevokedToken.token == token)
+    result = await session.exec(statement)
+    revoked = result.first()
+    if revoked and revoked.expires_at > datetime.now(timezone.utc):
+        return True
+    # Limpar tokens expirados periodicamente
+    if revoked and revoked.expires_at <= datetime.now(timezone.utc):
+        await session.delete(revoked)
+        await session.commit()
+    return False
 
 
-def _revoke_token(token: str, exp: datetime) -> None:
-    revoked_tokens[token] = exp
-    _cleanup_revoked_tokens()
+async def _revoke_token(token: str, exp: datetime, session: AsyncSession) -> None:
+    """Revoga um token persistindo no banco de dados."""
+    # Verificar se já existe
+    statement = select(RevokedToken).where(RevokedToken.token == token)
+    result = await session.exec(statement)
+    existing = result.first()
+    
+    if existing:
+        # Atualizar expiração se necessário
+        existing.expires_at = exp
+        session.add(existing)
+    else:
+        # Criar novo registro
+        revoked_token = RevokedToken(
+            token=token,
+            expires_at=exp,
+            revoked_at=datetime.now(timezone.utc)
+        )
+        session.add(revoked_token)
+    
+    await session.commit()
+    await _cleanup_revoked_tokens(session)
 
 
 @router.post("/login")
@@ -125,9 +159,10 @@ async def login(
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Erro ao realizar login")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao realizar login: {str(e)}"
+            detail="Erro interno ao processar solicitação de login"
         )
 
 

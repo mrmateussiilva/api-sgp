@@ -32,8 +32,8 @@ async def create_user(user: UserCreate, session: AsyncSession = Depends(get_sess
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nome de usuário já está em uso")
 
-    if len(user.password) < 4:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Senha deve ter ao menos 4 caracteres")
+    if len(user.password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Senha deve ter ao menos 8 caracteres")
 
     now = datetime.now(timezone.utc)
     db_user = User(
@@ -78,8 +78,8 @@ async def update_user(user_id: int, user_update: UserUpdate, session: AsyncSessi
         db_user.username = user_update.username
 
     if user_update.password:
-        if len(user_update.password) < 4:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Senha deve ter ao menos 4 caracteres")
+        if len(user_update.password) < 8:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Senha deve ter ao menos 8 caracteres")
         db_user.password_hash = _hash_password(user_update.password)
 
     if user_update.is_admin is not None:
