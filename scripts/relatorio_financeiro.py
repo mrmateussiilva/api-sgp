@@ -32,7 +32,7 @@ except ImportError:
 def normalize_float_value(value: Optional[str]) -> float:
     """
     Normaliza valores de string para float.
-    Lida com formatos como '370.00', '1,955.00', '0.00', None, etc.
+    Lida com formatos como '370.00', '1,955.00', '1.955.00', '0.00', None, etc.
     """
     if value is None or value == '':
         return 0.0
@@ -43,9 +43,43 @@ def normalize_float_value(value: Optional[str]) -> float:
     if not value_str or value_str == 'None':
         return 0.0
     
-    # Remove pontos de milhar e substitui vírgula por ponto decimal
-    # Ex: '1.955,00' -> '1955.00' ou '1,955.00' -> '1955.00'
-    value_str = value_str.replace('.', '').replace(',', '.')
+    # Detecta formato e converte corretamente
+    if ',' in value_str and '.' in value_str:
+        # Verificar ordem: se vírgula vem depois do ponto, é formato brasileiro
+        # Se ponto vem depois da vírgula, é formato misto
+        pos_virgula = value_str.rfind(',')
+        pos_ponto = value_str.rfind('.')
+        if pos_ponto > pos_virgula:
+            # Formato misto: 1,955.00 (vírgula como milhar, ponto como decimal)
+            # Remove vírgula (separador de milhar) e mantém ponto (decimal)
+            value_str = value_str.replace(',', '')
+        else:
+            # Formato brasileiro: 1.955,00 (ponto como milhar, vírgula como decimal)
+            # Remove pontos de milhar e substitui vírgula por ponto decimal
+            value_str = value_str.replace('.', '').replace(',', '.')
+    elif ',' in value_str:
+        # Formato brasileiro: 1.955,00 ou 1955,00
+        # Remove pontos de milhar e substitui vírgula por ponto decimal
+        value_str = value_str.replace('.', '').replace(',', '.')
+    elif '.' in value_str:
+        # Formato americano: pode ser 1955.00 ou 1.955.00 (com separador de milhar)
+        parts = value_str.split('.')
+        if len(parts) > 2:
+            # Múltiplos pontos: o último é decimal, os anteriores são separadores de milhar
+            # Ex: "1.955.00" -> parts = ["1", "955", "00"]
+            # Remover pontos anteriores ao último, manter o último ponto
+            decimal_part = parts[-1]
+            integer_part = ''.join(parts[:-1])
+            value_str = f"{integer_part}.{decimal_part}"
+        elif len(parts) == 2:
+            # Um ponto: verificar se é decimal (2-3 dígitos após) ou milhar
+            if len(parts[1]) <= 3:
+                # É decimal, mantém como está
+                pass
+            else:
+                # Não é decimal, remove o ponto (é separador de milhar incorreto)
+                value_str = value_str.replace('.', '')
+        # Se len(parts) == 1, não há ponto (não deveria entrar aqui)
     
     try:
         return float(value_str)

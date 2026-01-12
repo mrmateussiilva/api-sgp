@@ -24,7 +24,44 @@ def parse_currency(value: Any) -> float:
     if isinstance(value, str):
         # Remove formatação de moeda
         cleaned = value.replace("R$", "").replace("$", "").strip()
-        cleaned = cleaned.replace(".", "").replace(",", ".")
+        
+        # Detecta formato e converte corretamente
+        if ',' in cleaned and '.' in cleaned:
+            # Verificar ordem: se vírgula vem depois do ponto, é formato brasileiro
+            # Se ponto vem depois da vírgula, é formato misto
+            pos_virgula = cleaned.rfind(',')
+            pos_ponto = cleaned.rfind('.')
+            if pos_ponto > pos_virgula:
+                # Formato misto: 1,955.00 (vírgula como milhar, ponto como decimal)
+                # Remove vírgula (separador de milhar) e mantém ponto (decimal)
+                cleaned = cleaned.replace(',', '')
+            else:
+                # Formato brasileiro: 1.955,00 (ponto como milhar, vírgula como decimal)
+                # Remove pontos de milhar e substitui vírgula por ponto decimal
+                cleaned = cleaned.replace('.', '').replace(',', '.')
+        elif ',' in cleaned:
+            # Formato brasileiro: 1.955,00 ou 1955,00
+            # Remove pontos de milhar e substitui vírgula por ponto decimal
+            cleaned = cleaned.replace('.', '').replace(',', '.')
+        elif '.' in cleaned:
+            # Formato americano: pode ser 1955.00 ou 1.955.00 (com separador de milhar)
+            parts = cleaned.split('.')
+            if len(parts) > 2:
+                # Múltiplos pontos: o último é decimal, os anteriores são separadores de milhar
+                # Ex: "1.955.00" -> parts = ["1", "955", "00"]
+                # Remover pontos anteriores ao último, manter o último ponto
+                decimal_part = parts[-1]
+                integer_part = ''.join(parts[:-1])
+                cleaned = f"{integer_part}.{decimal_part}"
+            elif len(parts) == 2:
+                # Um ponto: verificar se é decimal (2-3 dígitos após) ou milhar
+                if len(parts[1]) <= 3:
+                    # É decimal, mantém como está
+                    pass
+                else:
+                    # Não é decimal, remove o ponto (é separador de milhar incorreto)
+                    cleaned = cleaned.replace('.', '')
+        
         try:
             return float(cleaned)
         except (ValueError, TypeError):
