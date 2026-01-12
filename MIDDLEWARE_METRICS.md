@@ -147,6 +147,12 @@ Com os logs estruturados, é possível:
 
 **Volume de logs**: Cada requisição gera **1 linha de log** (INFO). Requisições lentas geram logs adicionais (WARNING/ERROR).
 
+**Localização dos logs**:
+- **Arquivo**: `shared/logs/api.log` (em produção) ou `logs/api.log` (em desenvolvimento)
+- **Rotação diária**: À meia-noite, o arquivo é renomeado para `api.log.YYYY-MM-DD`
+- **Retenção**: Mantém os últimos 30 dias de logs
+- **Terminal**: Logs também aparecem no console (útil em desenvolvimento)
+
 **Exemplo**:
 - 1000 requisições/minuto = 1000 linhas de log/minuto
 - Requisições normais (<1s): apenas 1 log INFO
