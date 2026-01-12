@@ -12,39 +12,39 @@ credentials/
 # ============================================
 # BANCO DE DADOS E BACKUPS
 # ============================================
-db/*.db
-db/*.db-shm
-db/*.db-wal
-db/*.db-journal
-backups/**
-!backups/
-!backups/.gitkeep
-*.db
-*.db-shm
-*.db-wal
-*.db-journal
+#db/*.db
+# db/*.db-shm
+# db/*.db-wal
+# db/*.db-journal
+# backups/**
+# !backups/
+# !backups/.gitkeep
+# *.db
+# *.db-shm
+# *.db-wal
+# *.db-journal
 
 # ============================================
 # ESTRUTURA DE RELEASES COMPARTILHADA
 # ============================================
 # Diretório compartilhado (shared/) não deve ser versionado
-shared/db/**
-!shared/db/
-!shared/db/.gitkeep
-shared/media/**
-!shared/media/
-!shared/media/.gitkeep
-!shared/media/templates/
-!shared/media/templates/**/*.html
-shared/logs/**
-!shared/logs/
-!shared/logs/.gitkeep
-shared/backups/**
-!shared/backups/
-!shared/backups/.gitkeep
-releases/**
-!releases/
-releases/current
+# shared/db/**
+# !shared/db/
+# !shared/db/.gitkeep
+# shared/media/**
+# !shared/media/
+# !shared/media/.gitkeep
+# !shared/media/templates/
+# !shared/media/templates/**/*.html
+# shared/logs/**
+# !shared/logs/
+# !shared/logs/.gitkeep
+# shared/backups/**
+# !shared/backups/
+# !shared/backups/.gitkeep
+# releases/**
+# !releases/
+# releases/current
 
 # ============================================
 # MÍDIA E UPLOADS (exceto templates)
