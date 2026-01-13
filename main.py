@@ -100,7 +100,8 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     lifespan=lifespan,
-    default_response_class=ORJSONResponse
+    default_response_class=ORJSONResponse,
+    redoc_url="/redoc",
 )
 # Middleware de métricas - deve ser adicionado primeiro para capturar todo o tempo de processamento
 app.add_middleware(MetricsMiddleware)
