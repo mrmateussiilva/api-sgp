@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import select, func
+from sqlmodel import select, func, and_, or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from base import get_session
@@ -689,7 +689,36 @@ async def relatorio_fechamentos(
     filtro_designer = _normalize_text(designer) if designer else None
     filtro_cliente = _normalize_text(cliente) if cliente else None
 
-    result = await session.exec(select(Pedido))
+    query = select(Pedido)
+    start_value = start.strftime("%Y-%m-%d")
+    end_value = end.strftime("%Y-%m-%d")
+
+    if normalized_date_mode == "entrada":
+        query = query.where(
+            func.date(Pedido.data_entrada) >= start_value,
+            func.date(Pedido.data_entrada) <= end_value,
+        )
+    elif normalized_date_mode == "entrega":
+        query = query.where(
+            Pedido.data_entrega.isnot(None),
+            func.date(Pedido.data_entrega) >= start_value,
+            func.date(Pedido.data_entrega) <= end_value,
+        )
+    else:
+        query = query.where(
+            or_(
+                and_(
+                    func.date(Pedido.data_entrada) >= start_value,
+                    func.date(Pedido.data_entrada) <= end_value,
+                ),
+                and_(
+                    func.date(Pedido.data_entrega) >= start_value,
+                    func.date(Pedido.data_entrega) <= end_value,
+                ),
+            )
+        )
+
+    result = await session.exec(query)
     pedidos = result.all()
 
     groups: Dict[str, Dict[str, Any]] = {}
