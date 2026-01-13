@@ -103,8 +103,16 @@ def get_item_value(item: ItemPedido) -> float:
     if subtotal:
         return parse_currency(subtotal)
     
-    # Tenta calcular a partir de quantity e unit_price
-    quantity = getattr(item, 'quantity', None) or 1
+    # Tenta calcular a partir de quantidade e valor unitario
+    quantity = (
+        getattr(item, 'quantity', None)
+        or getattr(item, 'quantidade', None)
+        or getattr(item, 'quantidade_paineis', None)
+        or getattr(item, 'quantidade_totem', None)
+        or getattr(item, 'quantidade_lona', None)
+        or getattr(item, 'quantidade_adesivo', None)
+        or 1
+    )
     unit_price = getattr(item, 'unit_price', None) or getattr(item, 'valor_unitario', None)
     if unit_price:
         return parse_currency(quantity) * parse_currency(unit_price)
