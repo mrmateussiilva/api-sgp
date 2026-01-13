@@ -171,6 +171,20 @@ Lista pedidos por status específico.
 Retorna o arquivo físico associado a um item de pedido.  
 Envie o campo `imagem` dos itens como `data:image/<tipo>;base64,...` (mesmo formato já aceito) e a API armazenará o arquivo dentro de `MEDIA_ROOT`, retornando apenas uma URL para download quando o pedido for listado.
 
+## 📊 Relatórios de Fechamentos
+
+Base path: `/api/v1/relatorios-fechamentos`
+
+- `GET /pedidos/relatorio`
+- `GET /pedidos/quantidade`
+- `GET /pedidos/por-status`
+- `GET /pedidos/por-cliente`
+- `GET /pedidos/por-vendedor`
+- `GET /pedidos/por-designer`
+- `GET /pedidos/por-tipo-producao`
+- `GET /pedidos/tendencia`
+- `GET /pedidos/valor-total`
+
 ## 🗄️ Estrutura do Banco
 
 ### Tabela `pedidos`

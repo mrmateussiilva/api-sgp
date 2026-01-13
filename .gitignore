@@ -25,7 +25,8 @@ db/dev.db-wal
 db/dev.db-journal
 
 # Bancos de produção não devem ser versionados
-# db/*.db (comentado para permitir .gitkeep se necessário)
+db/*.db
+!db/.gitkeep
 
 # Backups
 backups/**
@@ -36,9 +37,9 @@ backups/**
 # ESTRUTURA DE RELEASES COMPARTILHADA
 # ============================================
 # Diretório compartilhado (shared/) não deve ser versionado
-# shared/db/**
-# !shared/db/
-# !shared/db/.gitkeep
+shared/db/**
+!shared/db/
+!shared/db/.gitkeep
 # shared/media/**
 # !shared/media/
 # !shared/media/.gitkeep
