@@ -75,6 +75,9 @@ Suporte adicional:
 
 Endpoints dedicados a relatorios consolidados de pedidos.
 
+- `GET /relatorios-fechamentos/pedidos/relatorio`
+  - Rota unica para todos os tipos de relatorio via `report_type`.
+  - Parametros: `report_type`, `start_date`, `end_date`, `status`, `date_mode`, `vendedor`, `designer`, `cliente`, `frete_distribution`.
 - `GET /relatorios-fechamentos/pedidos/quantidade`
   - Retorna total de pedidos.
   - Parametros: `data_inicio`, `data_fim`, `date_mode` (`entrada`/`entrega`), `status`, `cliente`.

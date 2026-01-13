@@ -175,6 +175,7 @@ Envie o campo `imagem` dos itens como `data:image/<tipo>;base64,...` (mesmo form
 
 Base path: `/api/v1/relatorios-fechamentos`
 
+- `GET /pedidos/relatorio`
 - `GET /pedidos/quantidade`
 - `GET /pedidos/por-status`
 - `GET /pedidos/por-cliente`
