@@ -130,7 +130,7 @@ app.include_router(producoes_router, prefix=settings.API_V1_STR)
 app.include_router(users_router, prefix=settings.API_V1_STR)
 app.include_router(notificacoes_router, prefix="/api")
 app.include_router(fichas_router, prefix=settings.API_V1_STR)
-app.include_router(relatorios_router, prefix=settings.API_V1_STR)
+#app.include_router(relatorios_router, prefix=settings.API_V1_STR)
 app.include_router(relatorios_fechamentos_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
