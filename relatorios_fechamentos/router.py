@@ -166,7 +166,7 @@ def _format_status_label(status: Optional[str]) -> str:
 
 
 def _get_effective_date(pedido: Pedido) -> Optional[date]:
-    return _parse_order_date(pedido.data_entrega) or _parse_order_date(pedido.data_entrada) or _parse_order_date(pedido.data_criacao)
+    return _parse_order_date(pedido.data_entrega) or _parse_order_date(pedido.data_entrada)
 
 
 def _filter_by_date(
