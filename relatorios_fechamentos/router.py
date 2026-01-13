@@ -207,8 +207,6 @@ def _group_sort_key(value: str) -> str:
 
 
 def _normalize_frete_distribution(value: Optional[str], report_type: str) -> str:
-    if report_type == "sintetico_vendedor_designer":
-        return "proporcional"
     if not value:
         return "por_pedido"
     normalized = value.lower().strip()
