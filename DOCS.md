@@ -71,6 +71,35 @@ Suporte adicional:
 - Utilitário `apply_image_changes` garante sincronização entre banco, arquivos e itens retornados.
 - Scripts auxiliares (`scripts/delete_all_pedidos.py`) usam as mesmas funções para limpeza de mídias.
 
+## Relatorios de Fechamentos (`relatorios_fechamentos/router.py`)
+
+Endpoints dedicados a relatorios consolidados de pedidos.
+
+- `GET /relatorios-fechamentos/pedidos/quantidade`
+  - Retorna total de pedidos.
+  - Parametros: `data_inicio`, `data_fim`, `date_mode` (`entrada`/`entrega`), `status`, `cliente`.
+- `GET /relatorios-fechamentos/pedidos/por-status`
+  - Agrupa pedidos por status.
+  - Parametros: `data_inicio`, `data_fim`, `date_mode`, `cliente`.
+- `GET /relatorios-fechamentos/pedidos/por-cliente`
+  - Ranking de clientes por pedidos/receita.
+  - Parametros: `data_inicio`, `data_fim`, `date_mode`, `status`, `limit`.
+- `GET /relatorios-fechamentos/pedidos/por-vendedor`
+  - Ranking de vendedores por pedidos/receita.
+  - Parametros: `data_inicio`, `data_fim`, `date_mode`, `status`, `limit`.
+- `GET /relatorios-fechamentos/pedidos/por-designer`
+  - Ranking de designers por pedidos/receita.
+  - Parametros: `data_inicio`, `data_fim`, `date_mode`, `status`, `limit`.
+- `GET /relatorios-fechamentos/pedidos/por-tipo-producao`
+  - Ranking por tipo de producao.
+  - Parametros: `data_inicio`, `data_fim`, `date_mode`, `status`, `limit`.
+- `GET /relatorios-fechamentos/pedidos/tendencia`
+  - Tendencia por periodo.
+  - Parametros: `data_inicio`, `data_fim`, `date_mode`, `status`, `group_by` (`day`/`week`/`month`).
+- `GET /relatorios-fechamentos/pedidos/valor-total`
+  - Soma valores e total de pedidos.
+  - Parametros: `data_inicio`, `data_fim`, `date_mode`, `status`, `cliente`, `vendedor`, `designer`.
+
 ## Fluxo em Tempo Real e Notificações
 
 - **WebSocket `/ws/orders`**:

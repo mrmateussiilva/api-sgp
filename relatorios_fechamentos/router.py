@@ -249,6 +249,44 @@ async def ranking_por_designer(
         ) from exc
 
 
+@router.get("/pedidos/por-tipo-producao", response_model=RelatorioRankingResponse)
+async def ranking_por_tipo_producao(
+    session: AsyncSession = Depends(get_session),
+    data_inicio: Optional[str] = Query(None, description="Data inicial (YYYY-MM-DD)"),
+    data_fim: Optional[str] = Query(None, description="Data final (YYYY-MM-DD)"),
+    date_mode: str = Query("entrada", description="Modo de data: 'entrada' ou 'entrega'"),
+    status: Optional[str] = Query(None, description="Status dos pedidos"),
+    limit: int = Query(10, ge=1, le=50, description="Numero maximo de resultados"),
+) -> RelatorioRankingResponse:
+    """Ranking de pedidos por tipo de producao."""
+    try:
+        normalized_mode = _normalize_date_mode(date_mode)
+        ranking_raw = await get_fechamento_by_category(
+            session,
+            category="tipo_producao",
+            start_date=data_inicio,
+            end_date=data_fim,
+            status=status,
+            date_mode=normalized_mode,
+            limit=limit,
+        )
+        ranking = [RelatorioRankingItem(**item) for item in ranking_raw]
+        return RelatorioRankingResponse(
+            category="tipo_producao",
+            items=ranking,
+            data_inicio=data_inicio,
+            data_fim=data_fim,
+            date_mode=normalized_mode,
+            status=status,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Erro ao gerar relatorio: {exc}"
+        ) from exc
+
+
 @router.get("/pedidos/tendencia", response_model=RelatorioTrendResponse)
 async def tendencia_pedidos(
     session: AsyncSession = Depends(get_session),
