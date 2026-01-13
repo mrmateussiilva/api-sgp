@@ -107,18 +107,24 @@ def get_item_value(item: ItemPedido) -> float:
     quantity_candidates = [
         getattr(item, 'quantity', None),
         getattr(item, 'quantidade', None),
-        getattr(item, 'quantidade_paineis', None),
-        getattr(item, 'quantidade_totem', None),
-        getattr(item, 'quantidade_lona', None),
-        getattr(item, 'quantidade_adesivo', None),
     ]
     unit_price = getattr(item, 'unit_price', None) or getattr(item, 'valor_unitario', None)
     if unit_price:
+        tipo = (getattr(item, 'tipo_producao', None) or "").strip().lower()
+        tipo_map = {
+            "painel": getattr(item, 'quantidade_paineis', None),
+            "totem": getattr(item, 'quantidade_totem', None),
+            "lona": getattr(item, 'quantidade_lona', None),
+            "adesivo": getattr(item, 'quantidade_adesivo', None),
+        }
         quantity_value = 1.0
-        for raw_value in quantity_candidates:
-            value = parse_currency(raw_value)
-            if value > quantity_value:
-                quantity_value = value
+        if tipo in tipo_map and tipo_map[tipo] is not None:
+            quantity_value = parse_currency(tipo_map[tipo])
+        else:
+            for raw_value in quantity_candidates:
+                value = parse_currency(raw_value)
+                if value > quantity_value:
+                    quantity_value = value
         if quantity_value > 1:
             return quantity_value * parse_currency(unit_price)
         return parse_currency(unit_price)
@@ -127,7 +133,7 @@ def get_item_value(item: ItemPedido) -> float:
     if hasattr(item, 'valor_unitario') and item.valor_unitario:
         return parse_currency(item.valor_unitario)
     
-    return 0.0
+    return 1
 
 
 def calculate_order_value(pedido: Pedido, items: List[ItemPedido]) -> float:
