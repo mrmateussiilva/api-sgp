@@ -6,7 +6,7 @@ from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from base import get_session
-from pedidos.schema import Pedido, Status
+from pedidos.schema import Pedido, PedidoResponse, Status
 from relatorios.fechamentos import (
     calculate_order_value,
     get_fechamento_by_category,
@@ -184,12 +184,12 @@ def _filter_by_date(
         return _date_in_range(_parse_order_date(pedido.data_entrada), start, end)
     if normalized == "entrega":
         return _date_in_range(_parse_order_date(pedido.data_entrega), start, end)
-    if normalized == "qualquer":
-        return _date_in_range(_parse_order_date(pedido.data_entrada), start, end) or _date_in_range(
-            _parse_order_date(pedido.data_entrega),
-            start,
-            end,
-        )
+    # if normalized == "qualquer":
+    #     return _date_in_range(_parse_order_date(pedido.data_entrada), start, end) or _date_in_range(
+    #         _parse_order_date(pedido.data_entrega),
+    #         start,
+    #         end,
+    #     )
     raise HTTPException(status_code=400, detail="date_mode invalido")
 
 
@@ -849,4 +849,39 @@ async def relatorio_fechamentos(
         "groups": group_list,
         "total": total_final,
     }
+    return response
+
+
+@router.get("/pedidos/relatorio-semanal", response_model=List[PedidoResponse])
+async def relatorio_semanal(
+    session: AsyncSession = Depends(get_session),
+    start_date: str = Query(..., description="Data inicial (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="Data final (YYYY-MM-DD)"),
+    date_mode: Optional[str] = Query("entrada", description="Modo de data: entrada, entrega ou qualquer"),
+) -> List[PedidoResponse]:
+    """Retorna todos os pedidos do intervalo informado."""
+    start = _parse_query_date(start_date, "start_date")
+    end = _parse_query_date(end_date, "end_date")
+    if start and end and start > end:
+        raise HTTPException(status_code=400, detail="start_date deve ser menor ou igual a end_date")
+
+    normalized_date_mode = date_mode.lower().strip() if date_mode else None
+    if normalized_date_mode and normalized_date_mode not in {"entrada", "entrega", "qualquer"}:
+        raise HTTPException(status_code=400, detail="date_mode invalido")
+
+    result = await session.exec(select(Pedido))
+    pedidos = result.all()
+    response: List[PedidoResponse] = []
+    for pedido in pedidos:
+        if not _filter_by_date(pedido, start, end, normalized_date_mode):
+            continue
+        items = json_string_to_items(pedido.items or "[]")
+        response.append(
+            PedidoResponse(
+                **pedido.model_dump(),
+                items=items,
+                data_criacao=pedido.data_criacao,
+                ultima_atualizacao=pedido.ultima_atualizacao,
+            )
+        )
     return response
