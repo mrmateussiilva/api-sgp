@@ -104,7 +104,7 @@ def get_item_value(item: ItemPedido) -> float:
         return parse_currency(subtotal)
     
     # Tenta calcular a partir de quantidade e valor unitario
-    quantity = (
+    quantity_raw = (
         getattr(item, 'quantity', None)
         or getattr(item, 'quantidade', None)
         or getattr(item, 'quantidade_paineis', None)
@@ -115,7 +115,10 @@ def get_item_value(item: ItemPedido) -> float:
     )
     unit_price = getattr(item, 'unit_price', None) or getattr(item, 'valor_unitario', None)
     if unit_price:
-        return parse_currency(quantity) * parse_currency(unit_price)
+        quantity_value = parse_currency(quantity_raw)
+        if quantity_value > 1:
+            return quantity_value * parse_currency(unit_price)
+        return parse_currency(unit_price)
     
     # Fallback: tenta valor_unitario sozinho
     if hasattr(item, 'valor_unitario') and item.valor_unitario:
