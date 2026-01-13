@@ -41,6 +41,7 @@ Funcionalidades principais:
 
 2. **Listagem e filtros** (`GET /pedidos/`):
    - Suporta `skip`, `limit`, `status`, busca textual por cliente e intervalo `data_inicio`/`data_fim`.
+   - `date_mode` define qual data filtrar: `entrada` (padrao), `entrega` ou `qualquer`.
    - Ao retornar, converte itens JSON novamente para objetos, separando `cidade_cliente` e `estado_cliente`.
 
 3. **Consulta individual** (`GET /pedidos/{id}`):

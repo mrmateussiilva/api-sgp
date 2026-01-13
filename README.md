@@ -153,6 +153,7 @@ Cria um novo pedido.
 
 #### GET `/api/v1/pedidos/`
 Lista todos os pedidos.
+Suporta filtros `data_inicio`, `data_fim` e `date_mode` (padrao `entrada`, ou `entrega`/`qualquer`).
 
 #### GET `/api/v1/pedidos/{pedido_id}`
 Obtém um pedido específico por ID.

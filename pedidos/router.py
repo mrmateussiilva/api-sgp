@@ -1188,7 +1188,7 @@ async def listar_pedidos(
     cliente: Optional[str] = Query(default=None),
     data_inicio: Optional[str] = Query(default=None),
     data_fim: Optional[str] = Query(default=None),
-    date_mode: str = Query("entrega", description="Modo de data: 'entrada', 'entrega' ou 'qualquer'"),
+    date_mode: str = Query("entrada", description="Modo de data: 'entrada', 'entrega' ou 'qualquer'"),
 ):
     """
     Lista todos os pedidos com seus items convertidos de volta para objetos.
@@ -1196,7 +1196,7 @@ async def listar_pedidos(
     Parâmetros:
     - date_mode: Define qual campo de data usar para filtro:
       * 'entrada': Filtra por data_entrada
-      * 'entrega': Filtra por data_entrega (padrão)
+      * 'entrega': Filtra por data_entrega
       * 'qualquer': Filtra por qualquer uma das duas datas (data_entrada OU data_entrega)
     """
     try:
