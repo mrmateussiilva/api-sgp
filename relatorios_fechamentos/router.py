@@ -262,8 +262,17 @@ def _get_analitico_keys(report_type: str, pedido: Pedido, item: Any) -> Tuple[Tu
     raise HTTPException(status_code=400, detail="report_type invalido")
 
 
-def _get_sintetico_group(report_type: str, pedido: Pedido, item: Any) -> Tuple[str, str]:
+def _get_sintetico_group(
+    report_type: str,
+    pedido: Pedido,
+    item: Any,
+    date_mode: Optional[str],
+) -> Tuple[str, str]:
     if report_type == "sintetico_data":
+        if date_mode == "entrada":
+            return _format_date_group("Data", _parse_order_date(pedido.data_entrada))
+        if date_mode == "entrega":
+            return _format_date_group("Data", _parse_order_date(pedido.data_entrega))
         return _format_date_group("Data", _get_effective_date(pedido))
     if report_type == "sintetico_data_entrada":
         return _format_date_group("Data Entrada", _parse_order_date(pedido.data_entrada))
@@ -812,7 +821,12 @@ async def relatorio_fechamentos(
                     group["subtotal"]["_desconto"] += desconto
                     group["_desconto_ids"].add(pedido_id)
             else:
-                group_key, group_label = _get_sintetico_group(report_type, pedido, item)
+                group_key, group_label = _get_sintetico_group(
+                    report_type,
+                    pedido,
+                    item,
+                    normalized_date_mode,
+                )
                 group = _ensure_group(groups, group_key, group_label, use_subgroups=False)
                 group["_items_count"] += 1
                 group["subtotal"]["valor_servico"] += item_value
