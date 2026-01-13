@@ -113,6 +113,7 @@ def get_item_value(item: ItemPedido) -> float:
         tipo = (getattr(item, 'tipo_producao', None) or "").strip().lower()
         tipo_map = {
             "painel": getattr(item, 'quantidade_paineis', None),
+            "generica": getattr(item, 'quantidade_paineis', None),
             "totem": getattr(item, 'quantidade_totem', None),
             "lona": getattr(item, 'quantidade_lona', None),
             "adesivo": getattr(item, 'quantidade_adesivo', None),
