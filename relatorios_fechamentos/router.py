@@ -878,6 +878,8 @@ async def relatorio_semanal(
         items = json_string_to_items(pedido.items or "[]")
         pedido_payload = pedido.model_dump()
         pedido_payload.pop("items", None)
+        pedido_payload.pop("data_criacao", None)
+        pedido_payload.pop("ultima_atualizacao", None)
         response.append(
             PedidoResponse(
                 **pedido_payload,
