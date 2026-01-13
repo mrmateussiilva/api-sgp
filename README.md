@@ -176,6 +176,7 @@ Envie o campo `imagem` dos itens como `data:image/<tipo>;base64,...` (mesmo form
 Base path: `/api/v1/relatorios-fechamentos`
 
 - `GET /pedidos/relatorio`
+- Filtro de data considera apenas `data_entrega` e `data_entrada` (sem `data_criacao`).
 - `GET /pedidos/relatorio-semanal`
 - `GET /pedidos/quantidade`
 - `GET /pedidos/por-status`

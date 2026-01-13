@@ -54,7 +54,7 @@ GET /relatorios-fechamentos/pedidos/relatorio
 ### Relatórios Sintéticos (1 nível de agrupamento)
 
 6. **`sintetico_data`**
-   - Agrupa por: Data (referência automática: entrega → entrada → created_at)
+   - Agrupa por: Data (referência automática: entrega → entrada)
    - Estrutura: `groups[].rows[]` (sem subgroups)
    - Cada grupo tem apenas 1 linha com descrição agregada
 
@@ -253,7 +253,7 @@ Mapeamento de status:
 - Se date_mode = "entrada": usar data_entrada do pedido
 - Se date_mode = "entrega": usar data_entrega do pedido
 - Se date_mode = "qualquer": incluir pedido se data_entrada OU data_entrega estiver no período
-- Se date_mode não informado: usar fallback data_entrega → data_entrada → created_at
+- Se date_mode não informado: usar fallback data_entrega → data_entrada
 
 #### Por Pessoas (Vendedor/Designer/Cliente)
 

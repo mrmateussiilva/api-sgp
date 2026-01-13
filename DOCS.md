@@ -78,6 +78,7 @@ Endpoints dedicados a relatorios consolidados de pedidos.
 - `GET /relatorios-fechamentos/pedidos/relatorio`
   - Rota unica para todos os tipos de relatorio via `report_type`.
   - Parametros: `report_type`, `start_date`, `end_date`, `status`, `date_mode`, `vendedor`, `designer`, `cliente`, `frete_distribution`.
+  - Filtro de data considera apenas `data_entrega` e `data_entrada` (sem `data_criacao`).
 - `GET /relatorios-fechamentos/pedidos/relatorio-semanal`
   - Retorna todos os pedidos do intervalo informado.
   - Parametros: `start_date`, `end_date`, `date_mode`.
