@@ -51,45 +51,55 @@ GET /relatorios-fechamentos/pedidos/relatorio
    - Estrutura: `groups[].subgroups[].rows[]`
    - Cada linha = 1 item de pedido
 
+6. **`analitico_vendedor_designer`**
+   - Agrupa por: Vendedor → Designer
+   - Estrutura: `groups[].subgroups[].rows[]`
+   - Cada linha = 1 item de pedido
+
+7. **`analitico_designer_vendedor`**
+   - Agrupa por: Designer → Vendedor
+   - Estrutura: `groups[].subgroups[].rows[]`
+   - Cada linha = 1 item de pedido
+
 ### Relatórios Sintéticos (1 nível de agrupamento)
 
-6. **`sintetico_data`**
+8. **`sintetico_data`**
    - Agrupa por: Data (referência automática: entrega → entrada)
    - Estrutura: `groups[].rows[]` (sem subgroups)
    - Cada grupo tem apenas 1 linha com descrição agregada
 
-7. **`sintetico_data_entrada`**
+9. **`sintetico_data_entrada`**
    - Agrupa por: Data de Entrada
    - Estrutura: `groups[].rows[]` (sem subgroups)
    - Cada grupo tem apenas 1 linha com descrição agregada
 
-8. **`sintetico_data_entrega`**
+10. **`sintetico_data_entrega`**
    - Agrupa por: Data de Entrega
    - Estrutura: `groups[].rows[]` (sem subgroups)
    - Cada grupo tem apenas 1 linha com descrição agregada
 
-9. **`sintetico_designer`**
+11. **`sintetico_designer`**
    - Agrupa por: Designer
    - Estrutura: `groups[].rows[]` (sem subgroups)
    - Cada grupo tem apenas 1 linha com descrição agregada
 
-10. **`sintetico_vendedor`**
+12. **`sintetico_vendedor`**
     - Agrupa por: Vendedor
     - Estrutura: `groups[].rows[]` (sem subgroups)
     - Cada grupo tem apenas 1 linha com descrição agregada
 
-11. **`sintetico_vendedor_designer`**
+13. **`sintetico_vendedor_designer`**
     - Agrupa por: Vendedor/Designer (combinado)
     - Estrutura: `groups[].rows[]` (sem subgroups)
     - Cada grupo tem apenas 1 linha com descrição agregada
     - **IMPORTANTE**: Usar `frete_distribution: "proporcional"` para evitar duplicação de frete
 
-12. **`sintetico_cliente`**
+14. **`sintetico_cliente`**
     - Agrupa por: Cliente
     - Estrutura: `groups[].rows[]` (sem subgroups)
     - Cada grupo tem apenas 1 linha com descrição agregada
 
-13. **`sintetico_entrega`**
+15. **`sintetico_entrega`**
     - Agrupa por: Forma de Entrega
     - Estrutura: `groups[].rows[]` (sem subgroups)
     - Cada grupo tem apenas 1 linha com descrição agregada
@@ -166,6 +176,8 @@ Título do relatório baseado no tipo:
 - analitico_cliente_painel → "Relatório Analítico — Cliente × Tipo de Produção"
 - analitico_designer_painel → "Relatório Analítico — Designer × Tipo de Produção"
 - analitico_entrega_painel → "Relatório Analítico — Forma de Entrega × Tipo de Produção"
+- analitico_vendedor_designer → "Relatório Analítico — Vendedor × Designer"
+- analitico_designer_vendedor → "Relatório Analítico — Designer × Vendedor"
 - sintetico_data → "Relatório Sintético — Totais por Data (referência automática)"
 - sintetico_data_entrada → "Relatório Sintético — Totais por Data de Entrada"
 - sintetico_data_entrega → "Relatório Sintético — Totais por Data de Entrega"
@@ -444,7 +456,7 @@ GET /relatorios-fechamentos/pedidos/relatorio?report_type=analitico_designer_cli
 
 Retornar quando:
 
-- report_type não for um dos 13 tipos válidos
+- report_type não for um dos 15 tipos válidos
 - start_date > end_date
 - formato de data inválido
 

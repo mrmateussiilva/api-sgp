@@ -36,6 +36,8 @@ REPORT_TYPES = {
     "analitico_cliente_painel",
     "analitico_designer_painel",
     "analitico_entrega_painel",
+    "analitico_vendedor_designer",
+    "analitico_designer_vendedor",
     "sintetico_data",
     "sintetico_data_entrada",
     "sintetico_data_entrega",
@@ -52,6 +54,8 @@ REPORT_TITLES = {
     "analitico_cliente_painel": "Relatório Analítico — Cliente × Tipo de Produção",
     "analitico_designer_painel": "Relatório Analítico — Designer × Tipo de Produção",
     "analitico_entrega_painel": "Relatório Analítico — Forma de Entrega × Tipo de Produção",
+    "analitico_vendedor_designer": "Relatório Analítico — Vendedor × Designer",
+    "analitico_designer_vendedor": "Relatório Analítico — Designer × Vendedor",
     "sintetico_data": "Relatório Sintético — Totais por Data (referência automática)",
     "sintetico_data_entrada": "Relatório Sintético — Totais por Data de Entrada",
     "sintetico_data_entrega": "Relatório Sintético — Totais por Data de Entrega",
@@ -258,6 +262,14 @@ def _get_analitico_keys(report_type: str, pedido: Pedido, item: Any) -> Tuple[Tu
     if report_type == "analitico_entrega_painel":
         group = _format_group_label("Forma de Entrega", pedido.forma_envio, "Sem forma de envio")
         subgroup = _format_group_label("Tipo de Produção", getattr(item, "tipo_producao", None), "Sem tipo")
+        return group, subgroup
+    if report_type == "analitico_vendedor_designer":
+        group = _format_group_label("Vendedor", getattr(item, "vendedor", None), "Sem vendedor")
+        subgroup = _format_group_label("Designer", getattr(item, "designer", None), "Sem designer")
+        return group, subgroup
+    if report_type == "analitico_designer_vendedor":
+        group = _format_group_label("Designer", getattr(item, "designer", None), "Sem designer")
+        subgroup = _format_group_label("Vendedor", getattr(item, "vendedor", None), "Sem vendedor")
         return group, subgroup
     raise HTTPException(status_code=400, detail="report_type invalido")
 
