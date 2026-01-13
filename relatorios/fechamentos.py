@@ -104,18 +104,21 @@ def get_item_value(item: ItemPedido) -> float:
         return parse_currency(subtotal)
     
     # Tenta calcular a partir de quantidade e valor unitario
-    quantity_raw = (
-        getattr(item, 'quantity', None)
-        or getattr(item, 'quantidade', None)
-        or getattr(item, 'quantidade_paineis', None)
-        or getattr(item, 'quantidade_totem', None)
-        or getattr(item, 'quantidade_lona', None)
-        or getattr(item, 'quantidade_adesivo', None)
-        or 1
-    )
+    quantity_candidates = [
+        getattr(item, 'quantity', None),
+        getattr(item, 'quantidade', None),
+        getattr(item, 'quantidade_paineis', None),
+        getattr(item, 'quantidade_totem', None),
+        getattr(item, 'quantidade_lona', None),
+        getattr(item, 'quantidade_adesivo', None),
+    ]
     unit_price = getattr(item, 'unit_price', None) or getattr(item, 'valor_unitario', None)
     if unit_price:
-        quantity_value = parse_currency(quantity_raw)
+        quantity_value = 1.0
+        for raw_value in quantity_candidates:
+            value = parse_currency(raw_value)
+            if value > quantity_value:
+                quantity_value = value
         if quantity_value > 1:
             return quantity_value * parse_currency(unit_price)
         return parse_currency(unit_price)
