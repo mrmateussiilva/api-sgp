@@ -876,9 +876,11 @@ async def relatorio_semanal(
         if not _filter_by_date(pedido, start, end, normalized_date_mode):
             continue
         items = json_string_to_items(pedido.items or "[]")
+        pedido_payload = pedido.model_dump()
+        pedido_payload.pop("items", None)
         response.append(
             PedidoResponse(
-                **pedido.model_dump(),
+                **pedido_payload,
                 items=items,
                 data_criacao=pedido.data_criacao,
                 ultima_atualizacao=pedido.ultima_atualizacao,
