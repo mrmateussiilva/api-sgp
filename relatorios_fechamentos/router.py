@@ -898,12 +898,39 @@ async def relatorio_semanal(
     if normalized_date_mode and normalized_date_mode not in {"entrada", "entrega", "qualquer"}:
         raise HTTPException(status_code=400, detail="date_mode invalido")
 
-    result = await session.exec(select(Pedido))
+    query = select(Pedido)
+    start_value = start.strftime("%Y-%m-%d")
+    end_value = end.strftime("%Y-%m-%d")
+
+    if normalized_date_mode == "entrada":
+        query = query.where(
+            func.date(Pedido.data_entrada) >= start_value,
+            func.date(Pedido.data_entrada) <= end_value,
+        )
+    elif normalized_date_mode == "entrega":
+        query = query.where(
+            Pedido.data_entrega.isnot(None),
+            func.date(Pedido.data_entrega) >= start_value,
+            func.date(Pedido.data_entrega) <= end_value,
+        )
+    else:
+        query = query.where(
+            or_(
+                and_(
+                    func.date(Pedido.data_entrada) >= start_value,
+                    func.date(Pedido.data_entrada) <= end_value,
+                ),
+                and_(
+                    func.date(Pedido.data_entrega) >= start_value,
+                    func.date(Pedido.data_entrega) <= end_value,
+                ),
+            )
+        )
+
+    result = await session.exec(query)
     pedidos = result.all()
     response: List[PedidoResponse] = []
     for pedido in pedidos:
-        if not _filter_by_date(pedido, start, end, normalized_date_mode):
-            continue
         items = json_string_to_items(pedido.items or "[]")
         pedido_payload = pedido.model_dump()
         pedido_payload.pop("items", None)
