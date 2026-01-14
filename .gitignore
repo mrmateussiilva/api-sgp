@@ -1,14 +1,162 @@
-tmp
+# ============================================
+# ARQUIVOS SENSÍVEIS (CRÍTICO)
+# ============================================
 .env
+.env.local
+.env.*.local
 .env.bkp
-__pycache__/
-*.py[cod]
-*.log
-*.log.*
-*.db
+*.pem
+*.key
+secrets/
+credentials/
+
+# ============================================
+# BANCO DE DADOS E BACKUPS
+# ============================================
+# Arquivos temporários do SQLite (WAL mode)
 *.db-shm
 *.db-wal
-*.sqlite
-*.sqlite3
-relatorios/*.xlsx
+*.db-journal
+
+# Bancos de desenvolvimento e temporários
+db/dev.db
+db/dev.db-shm
+db/dev.db-wal
+db/dev.db-journal
+
+# Bancos de produção não devem ser versionados
+db/*.db
+!db/.gitkeep
+
+# Backups
+backups/**
+!backups/
+!backups/.gitkeep
+
+# ============================================
+# ESTRUTURA DE RELEASES COMPARTILHADA
+# ============================================
+# Diretório compartilhado (shared/) não deve ser versionado
+shared/db/**
+!shared/db/
+!shared/db/.gitkeep
+# shared/media/**
+# !shared/media/
+# !shared/media/.gitkeep
+# !shared/media/templates/
+# !shared/media/templates/**/*.html
+# shared/logs/**
+# !shared/logs/
+# !shared/logs/.gitkeep
+# shared/backups/**
+# !shared/backups/
+# !shared/backups/.gitkeep
+# releases/**
+# !releases/
+# releases/current
+
+# ============================================
+# MÍDIA E UPLOADS (exceto templates)
+# ============================================
+#media/**/*
+!media/.gitkeep
+!media/templates/
+!media/templates/**/*.html
+
+# ============================================
+# LOGS
+# ============================================
+logs/**
+!logs/
+!logs/.gitkeep
+*.log
+*.log.*
+service_stdout.log
+service_stderr.log
+
+# ============================================
+# ARQUIVOS TEMPORÁRIOS
+# ============================================
 tmpfile.txt
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# ============================================
+# PYTHON
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ============================================
+# TESTES E COBERTURA
+# ============================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# ============================================
+# AMBIENTES VIRTUAIS
+# ============================================
+.venv
+venv/
+ENV/
+env/
+.conda/
+
+# ============================================
+# EXECUTÁVEIS E BUILDS
+# ============================================
+*.exe
+*.dll
+*.dylib
+*.so
+*.spec
+api_sgp*.exe
+
+# ============================================
+# IDEs E EDITORES
+# ============================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# ============================================
+# SISTEMA OPERACIONAL
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ============================================
+# UV (gerenciador de pacotes)
+# ============================================
+# uv.lock pode ser versionado ou não, descomente se não quiser versionar:
+# uv.lock
+
+# ============================================
+# ARQUIVOS DE RELATÓRIOS GERADOS
+# ============================================
+relatorios/*.xlsx
+!relatorios/.gitkeep
