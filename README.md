@@ -336,6 +336,21 @@ powershell -ExecutionPolicy Bypass -File scripts\update.ps1 `
 - Ajuste `-DownloadDir` se quiser armazenar os instaladores em outro local.
 - Para rodar automaticamente, cadastre esse comando no **Task Scheduler** com privilégios elevados e monitore o histórico da tarefa.
 
+### Atualizacao automatica via ZIP (pasta compartilhada)
+
+Se voce distribui o backend em ZIP, use o script `scripts/update_from_share.ps1`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\update_from_share.ps1 `
+  -WatchPath "\\SERVIDOR\share\api" `
+  -ApiRoot "C:\api" `
+  -ServiceName "SGP-API" `
+  -Force
+```
+
+O ZIP precisa conter a versao no nome (ex.: `api-sgp-1.0.8.zip`). O script
+aplica a versao mais recente e grava o ultimo ZIP aplicado em `shared\update\last_zip.txt`.
+
 ## 📖 Documentação da API
 
 Acesse a documentação interativa da API em:

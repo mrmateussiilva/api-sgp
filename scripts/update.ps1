@@ -31,6 +31,9 @@
 .PARAMETER SkipBackup
     Pular backup (NÃO RECOMENDADO em produção)
 
+.PARAMETER Force
+    Não pedir confirmação (útil para automação)
+
 .EXAMPLE
     .\scripts\update.ps1 -Version "1.0.6" -ReleaseZip "C:\Downloads\api-sgp-1.0.6.zip"
 #>
@@ -40,7 +43,8 @@ param(
     [Parameter(Mandatory=$false)][string]$ApiRoot = "C:\api",
     [Parameter(Mandatory=$false)][string]$ServiceName = "SGP-API",
     [Parameter(Mandatory=$false)][int]$Port = 8000,
-    [Parameter(Mandatory=$false)][switch]$SkipBackup
+    [Parameter(Mandatory=$false)][switch]$SkipBackup,
+    [Parameter(Mandatory=$false)][switch]$Force
 )
 
 Set-StrictMode -Version Latest
@@ -277,10 +281,12 @@ function Main {
     Write-Host ""
     
     # Confirmação
-    $confirm = Read-Host "Deseja continuar com o update? (s/N)"
-    if ($confirm -ne "s" -and $confirm -ne "S") {
-        Write-Info "Update cancelado pelo usuário"
-        exit 0
+    if (-not $Force) {
+        $confirm = Read-Host "Deseja continuar com o update? (s/N)"
+        if ($confirm -ne "s" -and $confirm -ne "S") {
+            Write-Info "Update cancelado pelo usuário"
+            exit 0
+        }
     }
     
     try {
