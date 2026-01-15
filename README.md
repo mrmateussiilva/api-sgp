@@ -255,6 +255,11 @@ Com intervalo de data de entrega e imagem aplicada a todos os itens:
 uv run python scripts/seed_pedidos.py --amount 10 --start-date 2026-01-10 --end-date 2026-01-20 --image-path ./caminho/para/imagem.jpg
 ```
 
+Para criar uma nova leva sem colidir com numeros antigos, use outro prefixo:
+```bash
+uv run python scripts/seed_pedidos.py --amount 70 --start-date 2026-01-18 --end-date 2026-01-20 --prefix DEV --image-path ./caminho/para/imagem.jpg
+```
+
 Tipos de produção:
 ```bash
 uv run python scripts/seed_producoes.py

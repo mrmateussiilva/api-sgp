@@ -117,13 +117,14 @@ def _build_date_fields(
 def build_dataset(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
+    prefix: str = "SAMPLE",
 ) -> List[Dict]:
     now = datetime.utcnow()
     base_date = now.date()
 
     dataset = [
         {
-            "numero": "SAMPLE-001",
+            "numero": f"{prefix}-001",
             "cliente": "Agência Horizonte",
             "telefone_cliente": "(11) 91234-0001",
             "cidade": "São Paulo",
@@ -164,7 +165,7 @@ def build_dataset(
             ],
         },
         {
-            "numero": "SAMPLE-002",
+            "numero": f"{prefix}-002",
             "cliente": "Studio Estamparia",
             "telefone_cliente": "(31) 98877-2002",
             "cidade": "Belo Horizonte",
@@ -219,7 +220,7 @@ def build_dataset(
             ],
         },
         {
-            "numero": "SAMPLE-003",
+            "numero": f"{prefix}-003",
             "cliente": "Coletivo Criativo",
             "telefone_cliente": "(21) 97766-3003",
             "cidade": "Rio de Janeiro",
@@ -260,7 +261,7 @@ def build_dataset(
             ],
         },
         {
-            "numero": "SAMPLE-004",
+            "numero": f"{prefix}-004",
             "cliente": "Eventos Boreal",
             "telefone_cliente": "(41) 98900-4004",
             "cidade": "Curitiba",
@@ -301,7 +302,7 @@ def build_dataset(
             ],
         },
         {
-            "numero": "SAMPLE-005",
+            "numero": f"{prefix}-005",
             "cliente": "Promo Nordeste",
             "telefone_cliente": "(81) 98811-5005",
             "cidade": "Recife",
@@ -371,8 +372,9 @@ def expand_dataset(
     target_amount: int,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
+    prefix: str = "SAMPLE",
 ) -> List[Pedido]:
-    base = build_dataset(start_date, end_date)
+    base = build_dataset(start_date, end_date, prefix)
     if target_amount <= len(base):
         selected = base[:target_amount]
     else:
@@ -383,7 +385,7 @@ def expand_dataset(
             clone = template.copy()
             status = STATUS_SEQUENCE[len(selected) % len(STATUS_SEQUENCE)]
             clone["status"] = status
-            clone["numero"] = f"SAMPLE-{counter:03d}"
+            clone["numero"] = f"{prefix}-{counter:03d}"
             clone["cliente"] = f"{template['cliente']} #{counter}"
             if start_date and end_date:
                 data_entrada, data_entrega, created_at, updated_at = _build_date_fields(
@@ -451,9 +453,10 @@ async def seed_orders(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     image_path: Optional[Path] = None,
+    prefix: str = "SAMPLE",
 ) -> None:
     await create_db_and_tables()
-    orders = expand_dataset(amount, start_date, end_date)
+    orders = expand_dataset(amount, start_date, end_date, prefix)
     image_data: Optional[bytes] = None
     mime_type: Optional[str] = None
     original_name: Optional[str] = None
@@ -532,6 +535,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Caminho para uma imagem a aplicar em todos os itens.",
     )
+    parser.add_argument(
+        "--prefix",
+        type=str,
+        default="SAMPLE",
+        help="Prefixo para o numero do pedido (default: SAMPLE).",
+    )
     return parser.parse_args()
 
 
@@ -542,4 +551,12 @@ if __name__ == "__main__":
     if (start_date and not end_date) or (end_date and not start_date):
         raise ValueError("Informe data inicial e data final juntas.")
     image_path = Path(args.image_path) if args.image_path else None
-    asyncio.run(seed_orders(max(1, args.amount), start_date, end_date, image_path))
+    asyncio.run(
+        seed_orders(
+            max(1, args.amount),
+            start_date,
+            end_date,
+            image_path,
+            args.prefix,
+        )
+    )
