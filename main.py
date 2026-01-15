@@ -81,6 +81,7 @@ from notificacoes.router import router as notificacoes_router
 from fichas.router import router as fichas_router
 from relatorios.router import router as relatorios_router
 from relatorios_fechamentos.router import router as relatorios_fechamentos_router
+from relatorios_envios.router import router as relatorios_envios_router
 
 # Importar modelos para garantir que as tabelas sejam criadas
 from fichas.schema import Ficha, FichaTemplateModel  # noqa: F401
@@ -133,6 +134,7 @@ app.include_router(notificacoes_router, prefix="/api")
 app.include_router(fichas_router, prefix=settings.API_V1_STR)
 #app.include_router(relatorios_router, prefix=settings.API_V1_STR)
 app.include_router(relatorios_fechamentos_router, prefix=settings.API_V1_STR)
+app.include_router(relatorios_envios_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root():

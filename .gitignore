@@ -40,11 +40,11 @@ backups/**
 shared/db/**
 !shared/db/
 !shared/db/.gitkeep
-# shared/media/**
-# !shared/media/
-# !shared/media/.gitkeep
-# !shared/media/templates/
-# !shared/media/templates/**/*.html
+shared/media/**
+!shared/media/
+!shared/media/.gitkeep
+!shared/media/templates/
+!shared/media/templates/**/*.html
 # shared/logs/**
 # !shared/logs/
 # !shared/logs/.gitkeep
@@ -108,6 +108,7 @@ pip-delete-this-directory.txt
 htmlcov/
 .tox/
 .hypothesis/
+test_imports.py
 
 # ============================================
 # AMBIENTES VIRTUAIS

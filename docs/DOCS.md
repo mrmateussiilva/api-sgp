@@ -107,6 +107,14 @@ Endpoints dedicados a relatorios consolidados de pedidos.
   - Soma valores e total de pedidos.
   - Parametros: `data_inicio`, `data_fim`, `date_mode`, `status`, `cliente`, `vendedor`, `designer`.
 
+## Relatorio de Envios (`relatorios_envios/router.py`)
+
+Endpoint dedicado para relatorio de envios, sempre filtrando por **data de entrega**.
+
+- `GET /relatorios-envios/pedidos`
+  - Retorna pedidos filtrados por data de entrega.
+  - Parametros: `skip`, `limit`, `status`, `cliente`, `data_inicio`, `data_fim`.
+
 ## Fluxo em Tempo Real e Notificações
 
 - **WebSocket `/ws/orders`**:
