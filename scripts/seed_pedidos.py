@@ -1,14 +1,52 @@
 import argparse
 import asyncio
+import os
 import random
-from datetime import datetime, timedelta
-from typing import Dict, List
+from datetime import date, datetime, time, timedelta
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
+import aiofiles
 import orjson
 from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _env_file_has_key(key: str) -> bool:
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        return False
+    for line in env_path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.split("=", 1)[0].strip() == key:
+            return True
+    return False
+
+
+def _configure_shared_defaults() -> None:
+    if os.environ.get("DATABASE_URL") or _env_file_has_key("DATABASE_URL"):
+        return
+    if not (os.environ.get("API_ROOT") or _env_file_has_key("API_ROOT")):
+        return
+    api_root = Path(os.environ.get("API_ROOT") or PROJECT_ROOT)
+    shared_dir = api_root / "shared"
+    if not shared_dir.exists():
+        return
+    os.environ.setdefault("API_ROOT", str(api_root))
+    os.environ.setdefault("DATABASE_URL", f"sqlite:///{shared_dir / 'db' / 'banco.db'}")
+    os.environ.setdefault("MEDIA_ROOT", str(shared_dir / "media"))
+    os.environ.setdefault("LOG_DIR", str(shared_dir / "logs"))
+
+
+_configure_shared_defaults()
 
 from database.database import async_session_maker, create_db_and_tables
-from pedidos.schema import Pedido, Prioridade, Status
+from pedidos.schema import Pedido, PedidoImagem, Prioridade, Status
+from pedidos.images import store_image_bytes
 
 STATE_SEPARATOR = "||"
 
@@ -31,7 +69,55 @@ def serialize_items(items: List[dict]) -> str:
     return orjson.dumps(items).decode("utf-8")
 
 
-def build_dataset() -> List[Dict]:
+def _parse_date(value: Optional[str], label: str) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError(f"{label} invalida. Use YYYY-MM-DD.") from exc
+
+
+def _pick_delivery_date(start: date, end: date) -> date:
+    if start > end:
+        raise ValueError("data inicial deve ser menor ou igual a data final.")
+    if start == end:
+        return start
+    delta_days = (end - start).days
+    offset = random.randint(0, delta_days)
+    return start + timedelta(days=offset)
+
+
+def _build_date_fields(
+    base_date: date,
+    offset: int,
+    start_date: Optional[date],
+    end_date: Optional[date],
+) -> Tuple[str, str, datetime, datetime]:
+    if start_date and end_date:
+        entrega_date = _pick_delivery_date(start_date, end_date)
+        entrada_date = entrega_date - timedelta(days=random.randint(0, 5))
+        created_at = datetime.combine(
+            entrada_date, time(hour=random.randint(8, 18), minute=random.randint(0, 59))
+        )
+        updated_at = created_at + timedelta(hours=random.randint(0, 12))
+        return (
+            entrada_date.isoformat(),
+            entrega_date.isoformat(),
+            created_at,
+            updated_at,
+        )
+
+    data_entrada = (base_date - timedelta(days=offset)).isoformat()
+    data_entrega = (base_date + timedelta(days=7 - offset)).isoformat()
+    created_at = datetime.utcnow() - timedelta(hours=offset)
+    return data_entrada, data_entrega, created_at, created_at
+
+
+def build_dataset(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> List[Dict]:
     now = datetime.utcnow()
     base_date = now.date()
 
@@ -259,8 +345,12 @@ def build_dataset() -> List[Dict]:
 
     orders: List[Dict] = []
     for offset, data in enumerate(dataset):
-        data_entrada = (base_date - timedelta(days=offset)).isoformat()
-        data_entrega = (base_date + timedelta(days=7 - offset)).isoformat()
+        data_entrada, data_entrega, created_at, updated_at = _build_date_fields(
+            base_date,
+            offset,
+            start_date,
+            end_date,
+        )
         cidade_encoded = encode_city_state(
             data.pop("cidade"), data.pop("estado"))
         items_json = serialize_items(data.pop("items"))
@@ -269,16 +359,20 @@ def build_dataset() -> List[Dict]:
             "data_entrega": data_entrega,
             "cidade_cliente": cidade_encoded,
             "items": items_json,
-            "data_criacao": now - timedelta(hours=offset),
-            "ultima_atualizacao": now - timedelta(hours=offset),
+            "data_criacao": created_at,
+            "ultima_atualizacao": updated_at,
         }
         pedido.update(data)
         orders.append(pedido)
     return orders
 
 
-def expand_dataset(target_amount: int) -> List[Pedido]:
-    base = build_dataset()
+def expand_dataset(
+    target_amount: int,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> List[Pedido]:
+    base = build_dataset(start_date, end_date)
     if target_amount <= len(base):
         selected = base[:target_amount]
     else:
@@ -291,16 +385,28 @@ def expand_dataset(target_amount: int) -> List[Pedido]:
             clone["status"] = status
             clone["numero"] = f"SAMPLE-{counter:03d}"
             clone["cliente"] = f"{template['cliente']} #{counter}"
-            entrada_dt = datetime.fromisoformat(
-                template["data_entrada"]) + timedelta(days=counter)
-            entrega_dt = datetime.fromisoformat(
-                template["data_entrega"]) + timedelta(days=counter)
-            clone["data_entrada"] = entrada_dt.isoformat()
-            clone["data_entrega"] = entrega_dt.isoformat()
-            clone["data_criacao"] = template["data_criacao"] + \
-                timedelta(days=counter)
-            clone["ultima_atualizacao"] = template["ultima_atualizacao"] + \
-                timedelta(days=counter)
+            if start_date and end_date:
+                data_entrada, data_entrega, created_at, updated_at = _build_date_fields(
+                    date.today(),
+                    counter,
+                    start_date,
+                    end_date,
+                )
+                clone["data_entrada"] = data_entrada
+                clone["data_entrega"] = data_entrega
+                clone["data_criacao"] = created_at
+                clone["ultima_atualizacao"] = updated_at
+            else:
+                entrada_dt = datetime.fromisoformat(
+                    template["data_entrada"]) + timedelta(days=counter)
+                entrega_dt = datetime.fromisoformat(
+                    template["data_entrega"]) + timedelta(days=counter)
+                clone["data_entrada"] = entrada_dt.isoformat()
+                clone["data_entrega"] = entrega_dt.isoformat()
+                clone["data_criacao"] = template["data_criacao"] + \
+                    timedelta(days=counter)
+                clone["ultima_atualizacao"] = template["ultima_atualizacao"] + \
+                    timedelta(days=counter)
             selected.append(clone)
             counter += 1
 
@@ -310,22 +416,90 @@ def expand_dataset(target_amount: int) -> List[Pedido]:
     return pedidos
 
 
-async def seed_orders(amount: int) -> None:
+async def _attach_images_for_order(
+    session: AsyncSession,
+    pedido: Pedido,
+    items: List[dict],
+    image_data: bytes,
+    mime_type: str,
+    original_name: str,
+) -> None:
+    for index, item in enumerate(items):
+        identifier = item.get("id")
+        item_identificador = str(identifier) if identifier is not None else None
+        relative_path, filename, size = await store_image_bytes(
+            pedido.id,
+            image_data,
+            mime_type,
+            original_filename=original_name,
+        )
+        session.add(
+            PedidoImagem(
+                pedido_id=pedido.id,
+                item_index=index,
+                item_identificador=item_identificador,
+                filename=filename,
+                mime_type=mime_type,
+                path=relative_path,
+                tamanho=size,
+            )
+        )
+
+
+async def seed_orders(
+    amount: int,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    image_path: Optional[Path] = None,
+) -> None:
     await create_db_and_tables()
-    orders = expand_dataset(amount)
+    orders = expand_dataset(amount, start_date, end_date)
+    image_data: Optional[bytes] = None
+    mime_type: Optional[str] = None
+    original_name: Optional[str] = None
+
+    if image_path:
+        if not image_path.exists() or not image_path.is_file():
+            raise FileNotFoundError(f"Imagem nao encontrada: {image_path}")
+        original_name = image_path.name
+        mime_type = "image/jpeg"
+        guessed = Path(image_path).suffix.lower()
+        if guessed:
+            import mimetypes
+
+            mime_type = mimetypes.guess_type(str(image_path))[0] or mime_type
+        async with aiofiles.open(image_path, "rb") as file_obj:
+            image_data = await file_obj.read()
 
     async with async_session_maker() as session:
         result = await session.exec(select(Pedido.numero))
         existing_numbers = set(result.all())
         created = 0
+        created_orders: List[Pedido] = []
 
         for pedido in orders:
             if pedido.numero in existing_numbers:
                 continue
             session.add(pedido)
+            created_orders.append(pedido)
             created += 1
 
         if created:
+            await session.commit()
+            for pedido in created_orders:
+                await session.refresh(pedido)
+
+        if created_orders and image_data and mime_type and original_name:
+            for pedido in created_orders:
+                items_payload = orjson.loads(pedido.items or "[]")
+                await _attach_images_for_order(
+                    session,
+                    pedido,
+                    items_payload,
+                    image_data,
+                    mime_type,
+                    original_name,
+                )
             await session.commit()
 
         print(f"✅ {created} pedidos de exemplo criados." if created else "ℹ️ Nenhum novo pedido criado (já existentes).")
@@ -340,9 +514,32 @@ def parse_args() -> argparse.Namespace:
         default=5,
         help="Quantidade de pedidos a criar (default: 5)",
     )
+    parser.add_argument(
+        "--start-date",
+        type=str,
+        default=None,
+        help="Data inicial para data_entrega (YYYY-MM-DD).",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="Data final para data_entrega (YYYY-MM-DD).",
+    )
+    parser.add_argument(
+        "--image-path",
+        type=str,
+        default=None,
+        help="Caminho para uma imagem a aplicar em todos os itens.",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    asyncio.run(seed_orders(max(1, args.amount)))
+    start_date = _parse_date(args.start_date, "data inicial")
+    end_date = _parse_date(args.end_date, "data final")
+    if (start_date and not end_date) or (end_date and not start_date):
+        raise ValueError("Informe data inicial e data final juntas.")
+    image_path = Path(args.image_path) if args.image_path else None
+    asyncio.run(seed_orders(max(1, args.amount), start_date, end_date, image_path))

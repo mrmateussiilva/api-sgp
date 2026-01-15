@@ -59,6 +59,7 @@ shared/media/**
 # MÍDIA E UPLOADS (exceto templates)
 # ============================================
 #media/**/*
+media/pedidos/**
 !media/.gitkeep
 !media/templates/
 !media/templates/**/*.html

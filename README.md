@@ -241,6 +241,28 @@ python scripts/seed_pedidos.py --amount 10
 
 Use `--amount` (`-n`) para informar quantos pedidos deseja inserir. O script gera registros distribuídos entre os status (pendente, em produção, pronto, entregue e cancelado) e é idempotente, ou seja, não duplica números já existentes.
 
+### 🌱 Seed do banco (dados fake)
+
+O projeto inclui scripts para popular o banco com dados fictícios de forma rápida.
+
+Pedidos de exemplo:
+```bash
+uv run python scripts/seed_pedidos.py --amount 10
+```
+
+Com intervalo de data de entrega e imagem aplicada a todos os itens:
+```bash
+uv run python scripts/seed_pedidos.py --amount 10 --start-date 2026-01-10 --end-date 2026-01-20 --image-path ./caminho/para/imagem.jpg
+```
+
+Tipos de produção:
+```bash
+uv run python scripts/seed_producoes.py
+```
+
+Se preferir rodar sem `uv`, use `python` diretamente. Os scripts criam registros de teste respeitando a estrutura atual do banco.
+Por padrao, o script usa o `DATABASE_URL` do ambiente/.env (ex.: `sqlite:///db/dev.db`). Para apontar para outro banco, exporte `DATABASE_URL` antes de rodar.
+
 ## 💾 Backups e manutenção do banco
 
 Scripts utilitários foram adicionados em `scripts/` para operações rotineiras com o SQLite:

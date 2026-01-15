@@ -13,6 +13,21 @@ else:
     BASE_DIR = Path(__file__).parent
     WORK_DIR = BASE_DIR
 
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+_load_env_file(WORK_DIR / ".env")
+
 # Determinar diretório raiz da API (para releases compartilhadas)
 # Em produção, API_ROOT deve estar definido como variável de ambiente
 # Ex: C:\api (Windows) ou /opt/api (Linux)
