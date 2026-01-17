@@ -10,7 +10,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from auth import schema as auth_schema
-from auth.models import User
+from auth.models import User, RevokedToken
 from database.database import get_session
 from config import settings
 

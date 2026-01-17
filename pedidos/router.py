@@ -73,62 +73,6 @@ class PendingImageRemoval:
     identifier: Optional[str]
 
 
-async def ensure_order_columns() -> None:
-    required = (
-        ('conferencia', "ALTER TABLE pedidos ADD COLUMN conferencia BOOLEAN DEFAULT 0"),
-        ('sublimacao_maquina', "ALTER TABLE pedidos ADD COLUMN sublimacao_maquina TEXT"),
-        ('sublimacao_data_impressao', "ALTER TABLE pedidos ADD COLUMN sublimacao_data_impressao TEXT"),
-        ('pronto', "ALTER TABLE pedidos ADD COLUMN pronto BOOLEAN DEFAULT 0"),
-    )
-
-    def _apply_columns(sync_conn):
-        columns = sync_conn.execute(text("PRAGMA table_info(pedidos)")).fetchall()
-        existing = {col[1] for col in columns}
-        for name, ddl in required:
-            if name not in existing:
-                sync_conn.execute(text(ddl))
-
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(_apply_columns)
-    except Exception as exc:
-        logger.warning("[pedidos] aviso ao garantir colunas obrigatórias: %s", exc)
-
-
-async def ensure_order_indexes() -> None:
-    """
-    Garante índices auxiliares e unicidade do campo numero para segurança em concorrência.
-    """
-    statements = (
-        "CREATE INDEX IF NOT EXISTS idx_pedidos_status ON pedidos(status)",
-        "CREATE INDEX IF NOT EXISTS idx_pedidos_numero ON pedidos(numero)",
-        "CREATE INDEX IF NOT EXISTS idx_pedidos_data_entrada ON pedidos(data_entrada)",
-        "CREATE INDEX IF NOT EXISTS idx_pedidos_data_entrega ON pedidos(data_entrega)",
-        "CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos(cliente)",
-        "CREATE INDEX IF NOT EXISTS idx_pedidos_data_criacao ON pedidos(data_criacao)",
-        # índice único para evitar duplicidade silenciosa de numero sob concorrência
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_pedidos_numero ON pedidos(numero)",
-        # Índices compostos para queries frequentes (melhoram performance de leitura)
-        "CREATE INDEX IF NOT EXISTS idx_pedidos_status_data ON pedidos(status, data_entrada)",
-        "CREATE INDEX IF NOT EXISTS idx_pedidos_status_criacao ON pedidos(status, data_criacao)",
-    )
-
-    def _apply_indexes(sync_conn):
-        for ddl in statements:
-            sync_conn.execute(text(ddl))
-
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(_apply_indexes)
-    except Exception as exc:
-        logger.warning("[pedidos] aviso ao garantir indices: %s", exc)
-
-
-async def ensure_order_schema() -> None:
-    await ensure_order_columns()
-    await ensure_order_indexes()
-
-
 async def get_current_user_admin(
     token: Optional[str] = Depends(oauth2_scheme),
     session: AsyncSession = Depends(get_session)

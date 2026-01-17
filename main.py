@@ -81,7 +81,7 @@ from middleware.metrics import MetricsMiddleware
 
 # Routers
 from auth.router import router as auth_router
-from pedidos.router import router as pedidos_router, ensure_order_schema
+from pedidos.router import router as pedidos_router
 from pedidos.realtime import orders_notifier
 from clientes.router import router as clientes_router
 from pagamentos.router import router as pagamentos_router
@@ -97,6 +97,7 @@ from fichas.router import router as fichas_router
 from relatorios.router import router as relatorios_router
 from relatorios_fechamentos.router import router as relatorios_fechamentos_router
 from relatorios_envios.router import router as relatorios_envios_router
+from reposicoes.router import router as reposicoes_router
 
 # Importar modelos para garantir que as tabelas sejam criadas
 from fichas.schema import Ficha, FichaTemplateModel  # noqa: F401
@@ -109,7 +110,6 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_db_and_tables()
-    await ensure_order_schema()
     yield
 
 app = FastAPI(
@@ -150,6 +150,7 @@ app.include_router(fichas_router, prefix=settings.API_V1_STR)
 #app.include_router(relatorios_router, prefix=settings.API_V1_STR)
 app.include_router(relatorios_fechamentos_router, prefix=settings.API_V1_STR)
 app.include_router(relatorios_envios_router, prefix=settings.API_V1_STR)
+app.include_router(reposicoes_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root():
