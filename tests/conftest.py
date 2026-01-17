@@ -4,7 +4,8 @@ Fornece fixtures para banco de dados em memória e cliente HTTP.
 """
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import SQLModel
 from httpx import AsyncClient, ASGITransport
 from fastapi import FastAPI
@@ -75,23 +76,34 @@ async def test_engine():
 
 
 @pytest_asyncio.fixture(scope="function")
-async def test_session(test_engine):
-    """Cria uma sessão de banco de dados para cada teste."""
-    async_session_maker = async_sessionmaker(
+async def test_session_maker(test_engine):
+    """Retorna um session maker para criar novas sessões."""
+    return async_sessionmaker(
         test_engine, class_=AsyncSession, expire_on_commit=False
     )
-    
-    async with async_session_maker() as session:
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_session(test_session_maker):
+    """
+    Cria uma sessão de banco de dados para uso direto no teste.
+    Útil para setup/teardown de dados.
+    """
+    async with test_session_maker() as session:
         yield session
 
 
 @pytest_asyncio.fixture(scope="function")
-async def client(test_session):
-    """Cria um cliente HTTP assíncrono para testes."""
+async def client(test_session_maker):
+    """
+    Cria um cliente HTTP assíncrono para testes.
+    Usa override de dependência que cria UMA NOVA SESSÃO por requisição.
+    """
     async def override_get_session():
-        yield test_session
+        async with test_session_maker() as session:
+            yield session
     
-    # Substituir a dependência get_session pela sessão de teste
+    # Substituir a dependência get_session pela factory de teste
     app.dependency_overrides[get_session] = override_get_session
     
     async with AsyncClient(

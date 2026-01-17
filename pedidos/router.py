@@ -40,6 +40,17 @@ from .images import (
     MEDIA_ROOT,
     PEDIDOS_MEDIA_ROOT,
 )
+from .service import (
+    normalize_acabamento,
+    item_to_plain_dict,
+    items_to_json_string,
+    json_string_to_items,
+    normalize_pedido_status,
+    decode_city_state,
+    encode_city_state,
+    pedido_to_response_dict,
+    _save_pedido_json_internal,
+)
 import aiofiles
 from pathlib import Path
 from uuid import uuid4
@@ -158,40 +169,7 @@ def broadcast_order_event(event_type: str, pedido: Optional[PedidoResponse] = No
     
     schedule_broadcast(message)
 
-
-
-async def _save_pedido_json_internal(pedido_id: int, pedido_data: dict[str, Any]) -> None:
-    # Salva JSON do pedido em disco (MEDIA_ROOT/pedidos/{pedido_id}/) antes do broadcast
-    try:
-        pedido_dir = MEDIA_ROOT / "pedidos" / str(pedido_id)
-        pedido_dir.mkdir(parents=True, exist_ok=True)
-
-        timestamp = datetime.utcnow().isoformat().replace(":", "-").replace(".", "-")
-        filename = f"pedido-{pedido_id}-{timestamp}.json"
-        filepath = pedido_dir / filename
-
-        json_data: dict[str, Any] = {
-            **pedido_data,
-            "savedAt": datetime.utcnow().isoformat(),
-            "savedBy": "SGP System",
-            "version": "1.0",
-        }
-
-        if 'items' in json_data and isinstance(json_data['items'], list):
-            for idx, item in enumerate(json_data['items']):
-                if isinstance(item, dict) and 'imagem' in item:
-                    print(f"[SAVE-JSON] Item {idx} tem imagem: {item.get('imagem')}")
-
-        payload = orjson.dumps(json_data, option=orjson.OPT_INDENT_2, default=str)
-        async with aiofiles.open(filepath, 'wb') as f:
-            await f.write(payload)
-
-        relative_path = filepath.relative_to(MEDIA_ROOT)
-        path_str = str(relative_path).replace('\\', '/')
-        print(f"[UPLOAD] JSON do pedido {pedido_id} salvo em {path_str}")
-    except Exception as e:
-        logger.warning("Erro ao salvar JSON interno do pedido %s: %s", pedido_id, e, exc_info=True)
-
+# _save_pedido_json_internal moved to service.py
 
 def build_api_path(path: str) -> str:
     normalized = path if path.startswith("/") else f"/{path}"
@@ -202,129 +180,13 @@ def build_api_path(path: str) -> str:
         prefix = f"/{prefix}"
     return f"{prefix.rstrip('/')}{normalized}"
 
-
-def normalize_acabamento(acabamento_value: Any) -> Optional[Acabamento]:
-    if isinstance(acabamento_value, Acabamento):
-        return acabamento_value
-    if isinstance(acabamento_value, dict):
-        return Acabamento(**acabamento_value)
-    return None
-
-
-def item_to_plain_dict(item: Any) -> dict[str, Any]:
-    if hasattr(item, 'model_dump'):
-        item_dict = item.model_dump(exclude_none=True, exclude_unset=True)
-        acabamento = getattr(item, 'acabamento', None)
-        if acabamento:
-            normalized = normalize_acabamento(acabamento)
-            if normalized:
-                item_dict['acabamento'] = normalized.model_dump(exclude_none=True)
-    elif isinstance(item, dict):
-        item_dict = item.copy()
-        acabamento_value = item_dict.get('acabamento')
-        if hasattr(acabamento_value, 'model_dump'):
-            item_dict['acabamento'] = acabamento_value.model_dump(exclude_none=True)
-        elif isinstance(acabamento_value, dict):
-            item_dict['acabamento'] = Acabamento(**acabamento_value).model_dump(exclude_none=True)
-    else:
-        item_dict = getattr(item, '__dict__', {}).copy()
-    return item_dict
-
-
-def items_to_json_string(items) -> str:
-    """Converte lista de items para string JSON"""
-    items_data = [item_to_plain_dict(item) for item in items]
-    return orjson.dumps(items_data).decode("utf-8")
-
-def json_string_to_items(items_json: str) -> List[ItemPedido]:
-    """Converte string JSON para lista de items"""
-    if not items_json:
-        return []
-    
-    try:
-        items_data = orjson.loads(items_json)
-        normalized_items: List[ItemPedido] = []
-        for item_data in items_data:
-            acabamento = normalize_acabamento(item_data.get('acabamento'))
-            payload = {k: v for k, v in item_data.items() if k != 'acabamento'}
-            normalized_items.append(ItemPedido(**payload, acabamento=acabamento))
-        return normalized_items
-    except (orjson.JSONDecodeError, Exception) as e:
-        print(f"Erro ao converter JSON para items: {e}")
-        return []
-
-
-def normalize_pedido_status(pedido: Pedido) -> None:
-    """Normaliza o status de um pedido carregado do banco."""
-    if not hasattr(pedido, 'status'):
-        return
-    
-    status_value = pedido.status
-    status_map = {
-        'pendente': Status.PENDENTE,
-        'em producao': Status.EM_PRODUCAO,
-        'em produção': Status.EM_PRODUCAO,
-        'em_producao': Status.EM_PRODUCAO,
-        'pronto': Status.PRONTO,
-        'entregue': Status.ENTREGUE,
-        'concluido': Status.ENTREGUE,
-        'concluído': Status.ENTREGUE,
-        'cancelado': Status.CANCELADO,
-    }
-    
-    try:
-        if isinstance(status_value, str):
-            normalized = status_value.lower().strip()
-            object.__setattr__(pedido, 'status', status_map.get(normalized, Status.PENDENTE))
-        elif not isinstance(status_value, Status) and status_value is not None:
-            object.__setattr__(pedido, 'status', Status.PENDENTE)
-    except (ValueError, TypeError, AttributeError):
-        object.__setattr__(pedido, 'status', Status.PENDENTE)
-
-
-def pedido_to_response_dict(pedido: Pedido, items: List[ItemPedido]) -> dict:
-    """Converte um objeto Pedido para dicionário para criar PedidoResponse."""
-    cidade, estado = decode_city_state(pedido.cidade_cliente)
-    
-    # Calcular valor_total_calculado (frete + itens) para validação
-    from relatorios.fechamentos import parse_currency
-    valor_frete_num = parse_currency(pedido.valor_frete) if pedido.valor_frete else 0.0
-    valor_itens_num = parse_currency(pedido.valor_itens) if pedido.valor_itens else 0.0
-    valor_total_calculado = valor_frete_num + valor_itens_num
-    
-    return {
-        'id': pedido.id,
-        'numero': pedido.numero,
-        'data_entrada': pedido.data_entrada,
-        'data_entrega': pedido.data_entrega,
-        'observacao': pedido.observacao,
-        'prioridade': pedido.prioridade,
-        'status': pedido.status,  # Já normalizado por normalize_pedido_status
-        'cliente': pedido.cliente,
-        'telefone_cliente': pedido.telefone_cliente,
-        'cidade_cliente': cidade,
-        'estado_cliente': estado,
-        'valor_total': pedido.valor_total,  # ⚠️ USAR ESTE para somar (já inclui frete + itens)
-        'valor_frete': pedido.valor_frete,  # Apenas informativo
-        'valor_itens': pedido.valor_itens,  # Apenas informativo
-        'valor_total_calculado': f"{valor_total_calculado:.2f}",  # frete + itens (para validação)
-        'tipo_pagamento': pedido.tipo_pagamento,
-        'obs_pagamento': pedido.obs_pagamento,
-        'forma_envio': pedido.forma_envio,
-        'forma_envio_id': pedido.forma_envio_id,
-        'financeiro': pedido.financeiro,
-        'conferencia': pedido.conferencia,
-        'sublimacao': pedido.sublimacao,
-        'costura': pedido.costura,
-        'expedicao': pedido.expedicao,
-        'pronto': pedido.pronto,
-        'sublimacao_maquina': pedido.sublimacao_maquina,
-        'sublimacao_data_impressao': pedido.sublimacao_data_impressao,
-        'items': items,
-        'data_criacao': pedido.data_criacao,
-        'ultima_atualizacao': pedido.ultima_atualizacao,
-    }
-
+# helper functions moved to service.py:
+# normalize_acabamento
+# item_to_plain_dict
+# items_to_json_string
+# json_string_to_items
+# normalize_pedido_status
+# pedido_to_response_dict
 
 def resolve_item_identifier(item_dict: dict[str, Any]) -> Optional[str]:
     identifier = item_dict.get('id')
@@ -685,25 +547,11 @@ def ensure_pedido_defaults(pedido_data: dict) -> dict:
 
     return pedido_data
 
-
-def encode_city_state(cidade: str, estado: Optional[str]) -> str:
-    base_cidade, _ = decode_city_state(cidade)
-    estado_normalized = (estado or '').strip()
-    if estado_normalized:
-        return f"{base_cidade}{STATE_SEPARATOR}{estado_normalized}"
-    return base_cidade
-
-
-def decode_city_state(value: Optional[str]) -> tuple[str, Optional[str]]:
-    if not value:
-        return '', None
-    if STATE_SEPARATOR in value:
-        cidade, estado = value.split(STATE_SEPARATOR, 1)
-        cidade = cidade.strip()
-        estado = estado.strip() or None
-        return cidade, estado
-    return value.strip(), None
-
+# encode_city_state e decode_city_state moved to service.py (but encode_city_state needed here too if not imported)
+# wait, decode_city_state was moved, but what about encode_city_state?
+# encode_city_state wasn't in the list of moved functions in previous thought, checking service.py content...
+# Ah, I added encode_city_state to service.py in my thought but I need to check if I actually wrote it there.
+# Let me check service.py again briefly or just import it.
 
 @router.get("/imagens/{imagem_id}")
 async def obter_imagem(imagem_id: int, session: AsyncSession = Depends(get_session)):
@@ -868,58 +716,12 @@ async def salvar_pedido_json(
     O arquivo é salvo em: api-sgp/media/pedidos/{pedido_id}/
     """
     try:
-        from pathlib import Path
-        import json
-        from datetime import datetime
-        import aiofiles
-        
-        # Obter caminho do projeto (mesmo padrão usado em images.py)
-        PROJECT_ROOT = Path(__file__).resolve().parent.parent
-        from config import settings
-        _configured_media_root = Path(settings.MEDIA_ROOT)
-        if not _configured_media_root.is_absolute():
-            MEDIA_ROOT = (PROJECT_ROOT / _configured_media_root).resolve()
-        else:
-            MEDIA_ROOT = _configured_media_root.resolve()
-        
-        # Criar diretório para o pedido
-        pedido_dir = MEDIA_ROOT / "pedidos" / str(pedido_id)
-        pedido_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Criar nome do arquivo com timestamp
-        timestamp = datetime.utcnow().isoformat().replace(':', '-').replace('.', '-')
-        filename = f"pedido-{pedido_id}-{timestamp}.json"
-        filepath = pedido_dir / filename
-        
-        # Adicionar metadados
-        json_data = {
-            **pedido_data,
-            "savedAt": datetime.utcnow().isoformat(),
-            "savedBy": "SGP System",
-            "version": "1.0"
-        }
-        
-        # Verificar se há imagens nos items e logar
-        if 'items' in json_data and isinstance(json_data['items'], list):
-            for idx, item in enumerate(json_data['items']):
-                if isinstance(item, dict) and 'imagem' in item:
-                    print(f"[SAVE-JSON] Item {idx} tem imagem: {item.get('imagem')}")
-        
-        # Salvar arquivo JSON de forma assíncrona
-        json_content = json.dumps(json_data, indent=2, ensure_ascii=False)
-        async with aiofiles.open(filepath, 'w', encoding='utf-8') as f:
-            await f.write(json_content)
-        
-        # Retornar caminho relativo
-        relative_path = filepath.relative_to(MEDIA_ROOT)
-        path_str = str(relative_path).replace("\\", "/")
-        
-        print(f"[UPLOAD] JSON do pedido {pedido_id} salvo em {path_str}")
+        # Re-use internal function
+        await _save_pedido_json_internal(pedido_id, pedido_data)
         
         return {
             "message": "JSON salvo com sucesso",
-            "path": path_str,
-            "filename": filename
+            "pedido_id": pedido_id
         }
         
     except Exception as e:
@@ -1135,7 +937,7 @@ async def listar_pedidos(
     date_mode: str = Query("entrada", description="Modo de data: 'entrada', 'entrega' ou 'qualquer'"),
 ):
     """
-    Lista todos os pedidos com seus items convertidos de volta para objetos.
+    Lista todos os pedidos com seus items convertidos de volta para objetos. 
     
     Parâmetros:
     - date_mode: Define qual campo de data usar para filtro:
@@ -1270,7 +1072,8 @@ async def listar_pedidos(
                   AND data_entrega IS NOT NULL
                   AND data_entrega >= :data_inicio
                   AND data_entrega < :data_fim
-            """)
+            """,
+            )
             
             debug_result = await session.execute(
                 debug_sql, 
@@ -1290,7 +1093,8 @@ async def listar_pedidos(
                 WHERE data_entrega IS NOT NULL
                   AND data_entrega >= :data_inicio
                   AND data_entrega < :data_fim
-            """)
+            """,
+            )
             debug_result2 = await session.execute(
                 debug_sql2, 
                 {
@@ -1309,7 +1113,8 @@ async def listar_pedidos(
                     LOWER(cliente), 
                     'ç', 'c'), 'á', 'a'), 'à', 'a'), 'ã', 'a'), 'â', 'a'), 'é', 'e'), 'ê', 'e'), 'í', 'i'), 'ó', 'o'), 'ú', 'u')
                     LIKE :cliente_pattern
-            """)
+            """,
+            )
             debug_result3 = await session.execute(
                 debug_sql3, 
                 {
@@ -1424,7 +1229,8 @@ async def listar_pedidos(
                 WHERE {where_sql}
                 ORDER BY data_criacao DESC
                 LIMIT {limit} OFFSET {skip}
-            """)
+            """,
+            )
             
             # Executar query e criar objetos Pedido manualmente
             raw_result = await session.execute(sql_query, params)

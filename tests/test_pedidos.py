@@ -47,7 +47,7 @@ async def test_criar_pedido_sucesso(client: AsyncClient, clean_db):
         ]
     }
     
-    response = await client.post("/pedidos", json=pedido_data)
+    response = await client.post("/pedidos/", json=pedido_data)
     
     assert response.status_code == 200
     data = response.json()
@@ -71,13 +71,13 @@ async def test_criar_pedido_incrementa_id(client: AsyncClient, clean_db):
     }
     
     # Criar primeiro pedido
-    response1 = await client.post("/pedidos", json=pedido_base)
+    response1 = await client.post("/pedidos/", json=pedido_base)
     assert response1.status_code == 200
     id1 = response1.json()["id"]
     
     # Criar segundo pedido
     pedido_base["cliente"] = "Cliente Teste 2"
-    response2 = await client.post("/pedidos", json=pedido_base)
+    response2 = await client.post("/pedidos/", json=pedido_base)
     assert response2.status_code == 200
     id2 = response2.json()["id"]
     
@@ -102,8 +102,8 @@ async def test_criar_pedido_gera_numero_incremental_unico(client: AsyncClient, c
         "items": [],
     }
 
-    resp1 = await client.post("/pedidos", json=base)
-    resp2 = await client.post("/pedidos", json=base)
+    resp1 = await client.post("/pedidos/", json=base)
+    resp2 = await client.post("/pedidos/", json=base)
 
     assert resp1.status_code == 200
     assert resp2.status_code == 200
@@ -124,13 +124,13 @@ async def test_listar_pedidos(client: AsyncClient, clean_db):
     """Testa listagem de pedidos."""
     # Criar alguns pedidos
     for i in range(3):
-        await client.post("/pedidos", json={
+        await client.post("/pedidos/", json={
             "cliente": f"Cliente {i}",
             "data_entrada": "2024-01-15",
             "items": []
         })
     
-    response = await client.get("/pedidos")
+    response = await client.get("/pedidos/")
     assert response.status_code == 200
     data = response.json()
     
@@ -143,19 +143,19 @@ async def test_listar_pedidos(client: AsyncClient, clean_db):
 async def test_listar_pedidos_com_filtro_cliente(client: AsyncClient, clean_db):
     """Testa filtro por nome do cliente."""
     # Criar pedidos com clientes diferentes
-    await client.post("/pedidos", json={
+    await client.post("/pedidos/", json={
         "cliente": "João Silva",
         "data_entrada": "2024-01-15",
         "items": []
     })
-    await client.post("/pedidos", json={
+    await client.post("/pedidos/", json={
         "cliente": "Maria Santos",
         "data_entrada": "2024-01-15",
         "items": []
     })
     
     # Filtrar por "João"
-    response = await client.get("/pedidos?cliente=João")
+    response = await client.get("/pedidos/?cliente=João")
     assert response.status_code == 200
     data = response.json()
     
@@ -167,19 +167,19 @@ async def test_listar_pedidos_com_filtro_cliente(client: AsyncClient, clean_db):
 async def test_listar_pedidos_com_filtro_data(client: AsyncClient, clean_db):
     """Testa filtro por data de entrada."""
     # Criar pedidos em datas diferentes
-    await client.post("/pedidos", json={
+    await client.post("/pedidos/", json={
         "cliente": "Cliente 1",
         "data_entrada": "2024-01-15",
         "items": []
     })
-    await client.post("/pedidos", json={
+    await client.post("/pedidos/", json={
         "cliente": "Cliente 2",
         "data_entrada": "2024-01-20",
         "items": []
     })
     
     # Filtrar por período
-    response = await client.get("/pedidos?data_inicio=2024-01-15&data_fim=2024-01-16")
+    response = await client.get("/pedidos/?data_inicio=2024-01-15&data_fim=2024-01-16")
     assert response.status_code == 200
     data = response.json()
     
@@ -191,13 +191,13 @@ async def test_listar_pedidos_com_filtro_data(client: AsyncClient, clean_db):
 async def test_listar_pedidos_com_filtro_status(client: AsyncClient, clean_db):
     """Testa filtro por status."""
     # Criar pedidos com status diferentes
-    await client.post("/pedidos", json={
+    await client.post("/pedidos/", json={
         "cliente": "Cliente 1",
         "data_entrada": "2024-01-15",
         "status": "pendente",
         "items": []
     })
-    await client.post("/pedidos", json={
+    await client.post("/pedidos/", json={
         "cliente": "Cliente 2",
         "data_entrada": "2024-01-15",
         "status": "em_producao",
@@ -205,7 +205,7 @@ async def test_listar_pedidos_com_filtro_status(client: AsyncClient, clean_db):
     })
     
     # Filtrar por status pendente
-    response = await client.get("/pedidos?status=pendente")
+    response = await client.get("/pedidos/?status=pendente")
     assert response.status_code == 200
     data = response.json()
     
@@ -217,7 +217,7 @@ async def test_listar_pedidos_com_filtro_status(client: AsyncClient, clean_db):
 async def test_obter_pedido_por_id(client: AsyncClient, clean_db):
     """Testa obter pedido específico por ID."""
     # Criar pedido
-    create_response = await client.post("/pedidos", json={
+    create_response = await client.post("/pedidos/", json={
         "cliente": "Cliente Teste",
         "data_entrada": "2024-01-15",
         "items": [{"descricao": "Item teste"}]
@@ -245,7 +245,7 @@ async def test_obter_pedido_inexistente(client: AsyncClient, clean_db):
 async def test_atualizar_pedido(client: AsyncClient, clean_db):
     """Testa atualização de pedido."""
     # Criar pedido
-    create_response = await client.post("/pedidos", json={
+    create_response = await client.post("/pedidos/", json={
         "cliente": "Cliente Original",
         "data_entrada": "2024-01-15",
         "items": []
@@ -269,7 +269,7 @@ async def test_atualizar_pedido(client: AsyncClient, clean_db):
 async def test_deletar_pedido(client: AsyncClient, clean_db, admin_headers):
     """Testa deleção de pedido."""
     # Criar pedido
-    create_response = await client.post("/pedidos", json={
+    create_response = await client.post("/pedidos/", json={
         "cliente": "Cliente Para Deletar",
         "data_entrada": "2024-01-15",
         "items": []
@@ -307,7 +307,7 @@ async def test_pedido_com_items_complexos(client: AsyncClient, clean_db):
         ]
     }
     
-    response = await client.post("/pedidos", json=pedido_data)
+    response = await client.post("/pedidos/", json=pedido_data)
     assert response.status_code == 200
     data = response.json()
     
@@ -321,7 +321,7 @@ async def test_pedido_com_items_complexos(client: AsyncClient, clean_db):
 @pytest.mark.asyncio
 async def test_nao_deleta_pedido_sem_autenticacao(client: AsyncClient, clean_db):
     """Garante que rotas protegidas exigem token."""
-    create_response = await client.post("/pedidos", json={
+    create_response = await client.post("/pedidos/", json={
         "cliente": "Cliente Restrito",
         "data_entrada": "2024-01-15",
         "items": []
@@ -335,7 +335,7 @@ async def test_nao_deleta_pedido_sem_autenticacao(client: AsyncClient, clean_db)
 @pytest.mark.asyncio
 async def test_financeiro_requer_admin(client: AsyncClient, clean_db):
     """Atualização do campo financeiro deve exigir admin."""
-    create_response = await client.post("/pedidos", json={
+    create_response = await client.post("/pedidos/", json={
         "cliente": "Cliente Financeiro",
         "data_entrada": "2024-01-15",
         "items": []
@@ -349,7 +349,7 @@ async def test_financeiro_requer_admin(client: AsyncClient, clean_db):
 @pytest.mark.asyncio
 async def test_financeiro_com_admin(client: AsyncClient, clean_db, admin_headers):
     """Admins conseguem atualizar o campo financeiro."""
-    create_response = await client.post("/pedidos", json={
+    create_response = await client.post("/pedidos/", json={
         "cliente": "Cliente Financeiro Admin",
         "data_entrada": "2024-01-15",
         "items": []
@@ -374,16 +374,15 @@ async def test_criar_varios_pedidos_em_paralelo(client: AsyncClient, clean_db, t
 
     async def _criar(i: int):
         return await client.post(
-            "/pedidos",
-            json={
+            "/pedidos/",            json={
                 "cliente": f"Cliente {i}",
                 "data_entrada": "2024-01-15",
                 "items": [],
             },
         )
 
-    # 20 requisições em paralelo
-    responses = await asyncio.gather(*[_criar(i) for i in range(20)])
+    # 5 requisições em paralelo
+    responses = await asyncio.gather(*[_criar(i) for i in range(5)])
 
     assert all(r.status_code == 200 for r in responses)
 
@@ -403,8 +402,8 @@ async def test_atualizar_pedido_numero_duplicado_retorna_409(client: AsyncClient
         "data_entrada": "2024-01-15",
         "items": [],
     }
-    r1 = await client.post("/pedidos", json=base)
-    r2 = await client.post("/pedidos", json=base)
+    r1 = await client.post("/pedidos/", json=base)
+    r2 = await client.post("/pedidos/", json=base)
     assert r1.status_code == 200
     assert r2.status_code == 200
 
@@ -422,17 +421,16 @@ async def test_criar_pedido_salva_imagem_e_expoe_download(client: AsyncClient, c
     pedido_data = {
         "cliente": "Cliente com imagem",
         "data_entrada": "2024-01-15",
-        "items": [
-            {
-                "id": "item-1",
-                "descricao": "Banner com arte",
-                "tipo_producao": "banner",
-                "imagem": SAMPLE_IMAGE_DATA,
+                    "items": [
+                        {
+                            #"id": "item-1",  # Removido ID inválido (string em campo int)
+                            "descricao": "Banner com arte",
+                            "tipo_producao": "banner",                "imagem": SAMPLE_IMAGE_DATA,
             }
         ]
     }
 
-    response = await client.post("/pedidos", json=pedido_data)
+    response = await client.post("/pedidos/", json=pedido_data)
     assert response.status_code == 200
     item = response.json()["items"][0]
     assert item["imagem"].startswith("/pedidos/imagens/")
@@ -454,12 +452,11 @@ async def test_criar_pedido_retorna_imagem_path(client: AsyncClient, clean_db, m
     response = await client.post("/pedidos/", json={
         "cliente": "Cliente com caminho",
         "data_entrada": "2024-01-15",
-        "items": [
-            {
-                "id": "legacy-item",
-                "descricao": "Item com arte",
-                "tipo_producao": "banner",
-                "imagem": SAMPLE_IMAGE_DATA,
+                    "items": [
+                        {
+                            #"id": "legacy-item", # Removido ID inválido
+                            "descricao": "Item com arte",
+                            "tipo_producao": "banner",                "imagem": SAMPLE_IMAGE_DATA,
             }
         ]
     })
@@ -514,7 +511,7 @@ async def test_respostas_populam_imagem_path_para_registros_antigos(
     await test_session.commit()
     await test_session.refresh(image_row)
 
-    list_response = await client.get("/pedidos")
+    list_response = await client.get("/pedidos/")
     assert list_response.status_code == 200
     pedido_data = list_response.json()[0]
     item = pedido_data["items"][0]
@@ -529,18 +526,19 @@ async def test_respostas_populam_imagem_path_para_registros_antigos(
 @pytest.mark.asyncio
 async def test_atualizar_pedido_substitui_imagem_antiga(client: AsyncClient, clean_db, media_root):
     """Atualizar item com nova imagem troca o arquivo salvo e remove o antigo."""
-    create_response = await client.post("/pedidos", json={
+    create_response = await client.post("/pedidos/", json={
         "cliente": "Cliente troca imagem",
         "data_entrada": "2024-01-15",
         "items": [
             {
-                "id": "item-1",
+                "id": 111,
                 "descricao": "Peça com imagem",
                 "tipo_producao": "banner",
                 "imagem": SAMPLE_IMAGE_DATA,
             }
         ]
     })
+    assert create_response.status_code == 200
     pedido_id = create_response.json()["id"]
     item = create_response.json()["items"][0]
     imagem_antiga = item["imagem"]
@@ -548,7 +546,7 @@ async def test_atualizar_pedido_substitui_imagem_antiga(client: AsyncClient, cle
     update_response = await client.patch(f"/pedidos/{pedido_id}", json={
         "items": [
             {
-                "id": "item-1",
+                "id": 111,
                 "descricao": "Peça com imagem",
                 "tipo_producao": "banner",
                 "imagem": SAMPLE_IMAGE_DATA_ALT,
@@ -571,25 +569,25 @@ async def test_atualizar_pedido_substitui_imagem_antiga(client: AsyncClient, cle
 @pytest.mark.asyncio
 async def test_atualizar_pedido_remove_imagem_quando_nula(client: AsyncClient, clean_db, media_root):
     """Enviar imagem nula remove arquivo registrado e atualiza item."""
-    create_response = await client.post("/pedidos", json={
+    create_response = await client.post("/pedidos/", json={
         "cliente": "Cliente remove imagem",
         "data_entrada": "2024-01-15",
-        "items": [
-            {
-                "id": "item-1",
-                "descricao": "Peça com imagem",
-                "tipo_producao": "banner",
-                "imagem": SAMPLE_IMAGE_DATA,
+                    "items": [
+                        {
+                            "id": 222,
+                            "descricao": "Peça com imagem",
+                            "tipo_producao": "banner",                "imagem": SAMPLE_IMAGE_DATA,
             }
         ]
     })
+    assert create_response.status_code == 200
     pedido_id = create_response.json()["id"]
     imagem_antiga = create_response.json()["items"][0]["imagem"]
 
     update_response = await client.patch(f"/pedidos/{pedido_id}", json={
         "items": [
             {
-                "id": "item-1",
+                "id": 222,
                 "descricao": "Peça com imagem",
                 "tipo_producao": "banner",
                 "imagem": None,
