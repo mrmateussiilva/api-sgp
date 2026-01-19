@@ -1,474 +1,591 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-  <style>
-    /* ============================================
-       CONFIGURAÇÃO DE PÁGINA
-       ============================================ */
-    @page {
-      size: A4 portrait;
-      margin: 10mm 15mm 10mm 15mm;
-    }
+    <meta charset="UTF-8">
+    <title>Ficha de Produção</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-    * {
-      box-sizing: border-box;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
+        @page {
+            size: A4;
+            margin: 0;
+        }
 
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      font-size: 10px;
-      color: #1a1a1a;
-      background: #f5f5f5;
-    }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            color: #000;
+            background: #fff;
+        }
 
-    /* ============================================
-       ESTRUTURA DE PÁGINA - EXATAMENTE 3 ITENS
-       ============================================ */
-    .print-page {
-      width: 210mm;
-      height: 297mm;
-      display: flex;
-      flex-direction: column;
-      page-break-after: always;
-      background: white;
-      padding: 0;
-    }
+        /* RESET IMPRESSÃO */
+        @media print {
+            body {
+                margin: 0;
+            }
+        }
 
-    .print-page:last-child {
-      page-break-after: auto;
-    }
+        /* FICHA - 210mm x 135mm (Total 270mm < 297mm A4) */
+        /* Margem de segurança de ~27mm para evitar quebra errada */
+        .ficha {
+            width: 210mm;
+            height: 135mm;
+            position: relative;
+            page-break-inside: avoid;
+            padding: 5mm;
+            overflow: hidden;
+            border-bottom: 2px dashed #999;
+            margin-bottom: 0;
+            display: block;
+            /* Garante bloco */
+        }
 
-    /* ============================================
-       CARD DO ITEM - 1/3 DA PÁGINA (99mm cada)
-       ============================================ */
-    .item {
-      height: 99mm;
-      min-height: 99mm;
-      max-height: 99mm;
-      border: 1.5px solid #d1d5db;
-      padding: 10px 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      overflow: hidden;
-      break-inside: avoid;
-      page-break-inside: avoid;
-      background: #ffffff;
-    }
+        /* HEADER LIMPO - 8mm fixo com fundo sutil */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 8mm;
+            border-bottom: 1px solid #ccc;
+            background-color: #f9f9f9;
+            margin-bottom: 3mm;
+            padding: 0 4mm;
+            /* Padding lateral */
+            font-size: 10px;
+            overflow: hidden;
+        }
 
-    .item:not(:last-child) {
-      border-bottom: none;
-    }
+        .header-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
 
-    .item:first-child {
-      border-radius: 8px 8px 0 0;
-    }
+        .h-label {
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #555;
+            font-size: 9px;
+        }
 
-    .item:last-child {
-      border-radius: 0 0 8px 8px;
-    }
+        .h-value {
+            font-weight: 600;
+            color: #000;
+            text-transform: uppercase;
+        }
 
-    .item:only-child {
-      border-radius: 8px;
-    }
+        /* PRIORIDADE EM FORMATO DE PILL */
+        .prioridade-tag {
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 9px;
+        }
 
-    /* ============================================
-       CABEÇALHO DO ITEM
-       ============================================ */
-    .item-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding-bottom: 8px;
-      border-bottom: 2px solid #e5e7eb;
-      flex-shrink: 0;
-    }
+        .prioridade-alta-tag {
+            color: #dc3545;
+            background: #fff0f0;
+            border: 1px solid #ffcccc;
+        }
 
-    .numero-pill {
-      background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
-      color: #ffffff;
-      padding: 8px 14px;
-      border-radius: 8px;
-      font-weight: 700;
-      font-size: 13px;
-      min-width: 85px;
-      text-align: center;
-      letter-spacing: 0.5px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
-    }
+        .prioridade-media-tag {
+            color: #856404;
+            background: #fff3cd;
+            border: 1px solid #ffeeba;
+        }
 
-    .header-info {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      min-width: 0;
-    }
+        .prioridade-baixa-tag {
+            color: #155724;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+        }
 
-    .header-line1 {
-      font-weight: 700;
-      font-size: 12px;
-      color: #111827;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
+        /* SEÇÃO PRINCIPAL - 110mm fixo */
+        .main-section {
+            display: flex;
+            gap: 4mm;
+            height: 110mm;
+            overflow: hidden;
+        }
 
-    .header-line2 {
-      font-size: 10px;
-      color: #6b7280;
-    }
+        /* COLUNA ESQUERDA - 90mm fixo */
+        .col-left {
+            flex: 0 0 90mm;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
 
-    /* ============================================
-       CORPO EM 2 COLUNAS
-       ============================================ */
-    .item-body {
-      flex: 1;
-      display: grid;
-      grid-template-columns: 1fr 42mm;
-      gap: 10px;
-      overflow: hidden;
-    }
+        /* PEDIDO E CLIENTE - Mais limpo */
+        .pedido-box {
+            border-bottom: 1px dashed #ddd;
+            padding-bottom: 2mm;
+            margin-bottom: 2mm;
+            flex-shrink: 0;
+            height: 25mm;
+            overflow: hidden;
+        }
 
-    /* Quando não há imagem, coluna esquerda ocupa tudo */
-    .item-body:not(:has(.col-right)) {
-      grid-template-columns: 1fr;
-    }
+        .pedido-numero {
+            font-size: 28px;
+            font-weight: 800;
+            line-height: 0.9;
+            margin-bottom: 2px;
+            color: #000;
+            white-space: nowrap;
+            letter-spacing: -0.5px;
+        }
 
-    /* ============================================
-       COLUNA ESQUERDA
-       ============================================ */
-    .col-left {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      overflow: hidden;
-    }
+        .badge-reposicao {
+            display: inline-block;
+            background: #ff6b35;
+            color: #fff;
+            padding: 2px 6px;
+            font-size: 8px;
+            font-weight: 700;
+            border-radius: 4px;
+            text-transform: uppercase;
+            margin-left: 6px;
+            vertical-align: middle;
+            letter-spacing: 0.5px;
+        }
 
-    .section {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
+        .cliente-nome {
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 3px;
+            line-height: 1.1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #333;
+        }
 
-    .section-title {
-      font-weight: 700;
-      font-size: 10px;
-      text-transform: uppercase;
-      color: #374151;
-      letter-spacing: 0.3px;
-      padding-bottom: 3px;
-      border-bottom: 1.5px solid #e5e7eb;
-    }
+        .cliente-info {
+            font-size: 9px;
+            color: #666;
+            display: flex;
+            align-items: center;
+        }
 
-    .section-content {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
+        .tipo-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            font-weight: 700;
+            font-size: 8px;
+            text-transform: uppercase;
+            border-radius: 4px;
+            margin-top: 2px;
+        }
 
-    .spec-item {
-      font-size: 10px;
-      line-height: 1.3;
-      color: #1f2937;
-    }
+        .tipo-badge.painel {
+            color: #004085;
+            background-color: #cce5ff;
+            border: 1px solid #b8daff;
+        }
 
-    .spec-item strong {
-      font-weight: 600;
-      color: #111827;
-    }
+        .tipo-badge.lona {
+            color: #155724;
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+        }
 
-    /* Grade de 2 colunas para Designer/Vendedor */
-    .two-col {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 3px 10px;
-      margin-top: 3px;
-    }
+        .tipo-badge.totem {
+            color: #380d75;
+            background-color: #e0cffc;
+            border: 1px solid #d6bbfb;
+        }
 
-    /* ============================================
-       LISTAS COM BULLETS
-       ============================================ */
-    .bullets {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      margin-top: 2px;
-    }
+        .tipo-badge.adesivo {
+            color: #856404;
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+        }
 
-    .bullets .bullet-item {
-      padding-left: 12px;
-      position: relative;
-      font-size: 10px;
-      line-height: 1.3;
-    }
+        /* CONTEÚDO ESQUERDA - Restante da altura */
+        .left-content {
+            flex: 1;
+            overflow: hidden;
+        }
 
-    .bullets .bullet-item::before {
-      content: "•";
-      position: absolute;
-      left: 0;
-      color: #6b7280;
-      font-weight: bold;
-    }
+        /* PRODUTO */
+        .produto-nome {
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 2mm;
+            line-height: 1.1;
+            max-height: 10mm;
+            overflow: hidden;
+            color: #222;
+        }
 
-    /* ============================================
-       COLUNA DIREITA (VISUALIZAÇÃO)
-       ============================================ */
-    .col-right {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      border: 1.5px solid #e5e7eb;
-      border-radius: 8px;
-      padding: 8px;
-      background: #f9fafb;
-    }
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2mm;
+            margin-bottom: 2mm;
+            padding: 2mm 3mm;
+            background: #f8f9fa;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            height: 14mm;
+            overflow: hidden;
+        }
 
-    .image-box {
-      width: 100%;
-      flex: 1;
-      border: 1px dashed #d1d5db;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #ffffff;
-      overflow: hidden;
-      position: relative;
-      min-height: 50mm;
-    }
+        .info-label {
+            font-size: 7px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #888;
+            margin-bottom: 1px;
+            letter-spacing: 0.5px;
+        }
 
-    .image-box img {
-      max-width: 100%;
-      max-height: 100%;
-      object-fit: contain;
-      display: block;
-    }
+        .info-value {
+            font-size: 11px;
+            font-weight: 700;
+            color: #000;
+        }
 
-    /* Placeholder quando não há imagem */
-    .image-box:not(:has(img[src]))::after,
-    .image-box:has(img[src=""])::after,
-    .image-box:has(img[src*="undefined"])::after,
-    .image-box:has(img[src*="null"])::after {
-      content: "Sem visualização";
-      color: #9ca3af;
-      font-size: 9px;
-      font-style: italic;
-    }
+        .qty {
+            font-size: 18px;
+            color: #d32f2f;
+        }
 
-    .legend {
-      font-size: 9px;
-      color: #6b7280;
-      text-align: center;
-      font-style: italic;
-      line-height: 1.3;
-    }
+        /* FICHA TÉCNICA */
+        .tech-section {
+            margin-bottom: 2mm;
+            font-size: 9px;
+            height: 10mm;
+            overflow: hidden;
+            border-left: 2px solid #eee;
+            padding-left: 3mm;
+        }
 
-    /* ============================================
-       OCULTAR ELEMENTOS VAZIOS
-       ============================================ */
-    .spec-item:empty,
-    .bullet-item:empty,
-    .legend:empty {
-      display: none;
-    }
+        .tech-title {
+            font-size: 8px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #aaa;
+            margin-bottom: 1px;
+        }
 
-    /* Ocultar coluna direita se não houver imagem válida */
-    .col-right:has(.image-box img[src=""]),
-    .col-right:has(.image-box img[src*="undefined"]),
-    .col-right:has(.image-box img[src*="null"]),
-    .col-right:not(:has(img[src])) {
-      display: none;
-    }
+        .tech-item {
+            margin-bottom: 1px;
+            color: #333;
+        }
 
-    /* Ocultar itens com data-show-if vazio */
-    [data-show-if=""],
-    [data-show-if="false"],
-    [data-show-if="null"],
-    [data-show-if="undefined"] {
-      display: none !important;
-    }
+        .tech-label {
+            font-weight: 700;
+            color: #555;
+        }
 
-    /* ============================================
-       OBSERVAÇÃO DESTACADA
-       ============================================ */
-    .observacao-box {
-      background: #fef3c7;
-      border-left: 3px solid #f59e0b;
-      padding: 5px 8px;
-      border-radius: 4px;
-      margin-top: 3px;
-    }
+        .specs {
+            font-size: 9px;
+            line-height: 1.4;
+            height: 30mm;
+            /* Aumentado para mostrar mais specs */
+            overflow: hidden;
+        }
 
-    .observacao-box .spec-item {
-      color: #92400e;
-      font-size: 9px;
-    }
+        .specs li {
+            list-style: none;
+            padding-left: 8px;
+            position: relative;
+            margin-bottom: 1.5mm;
+        }
 
-    /* ============================================
-       IMPRESSÃO
-       ============================================ */
-    @media print {
-      body {
-        background: white;
-      }
+        .specs li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            font-weight: 700;
+        }
 
-      .print-page {
-        margin: 0;
-        padding: 0;
-        box-shadow: none;
-      }
+        .obs-container {
+            height: 15mm;
+            /* Ajustado para balancear com specs */
+            overflow: hidden;
+            margin-top: 2mm;
+        }
 
-      .item {
-        box-shadow: none;
-        border-color: #d1d5db;
-      }
-    }
+        .obs {
+            border-left: 3px solid #ff6b35;
+            padding: 2mm;
+            background: #fff5f0;
+            font-size: 8px;
+            line-height: 1.2;
+            height: 100%;
+        }
 
-    /* ============================================
-       RESPONSIVIDADE (para visualização web)
-       ============================================ */
-    @media screen and (max-width: 768px) {
-      .print-page {
-        width: 100%;
-        height: auto;
-      }
+        .obs.pedido {
+            border-left-color: #0066cc;
+            background: #e6f2ff;
+        }
 
-      .item {
-        height: auto;
-        min-height: auto;
-        max-height: none;
-      }
+        .obs-title {
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 1mm;
+        }
 
-      .item-body {
-        grid-template-columns: 1fr;
-      }
+        /* COLUNA DIREITA - IMAGEM (55%) */
+        .col-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            height: 100%;
+            /* Força altura do pai */
+        }
 
-      .col-right {
-        order: -1;
-      }
-    }
-  </style>
+        .img-title {
+            font-size: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #666;
+            text-align: center;
+            margin-bottom: 2mm;
+            height: 4mm;
+        }
+
+        .img-box {
+            flex: 1;
+            border: 2px solid #ddd;
+            border-radius: 3px;
+            background: #fafafa;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            max-height: 100mm;
+            /* Reduzido proporcionalmente */
+        }
+
+        .img-box img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            display: block;
+            /* Remove espaço extra de inline */
+        }
+
+        .no-img {
+            color: #ccc;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .img-caption {
+            font-size: 8px;
+            color: #666;
+            text-align: center;
+            margin-top: 2mm;
+            font-style: italic;
+            height: 4mm;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        /* FOOTER SIMPLIFICADO */
+        .footer {
+            position: absolute;
+            bottom: 4mm;
+            left: 5mm;
+            right: 5mm;
+            height: 8mm;
+            border-top: 1px solid #ddd;
+            padding-top: 2px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 8px;
+            background: #fff;
+            overflow: hidden;
+            color: #777;
+        }
+
+        .footer-item {
+            flex: 1;
+        }
+
+        .footer-label {
+            font-size: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #666;
+        }
+
+        .footer-value {
+            font-weight: 600;
+            color: #000;
+        }
+
+        .footer-right {
+            text-align: right;
+            font-weight: 600;
+        }
+    </style>
 </head>
+
 <body>
-  <!-- ============================================
-       CADA PÁGINA CONTÉM EXATAMENTE 3 ITENS
-       Cada item ocupa 99mm (1/3 de 297mm)
-       ============================================ -->
-  <div class="print-page">
-      
-      <!-- ITEM 1 -->
-      <div class="item" data-tipo-producao="{{tipo_producao}}">
-        <div class="item-header">
-          <div class="numero-pill">{{numero}}</div>
-          <div class="header-info">
-            <div class="header-line1">{{cliente}}</div>
-            <div class="header-line2">{{telefone_cliente}}{{#if telefone_cliente}}{{#if cidade_estado}} • {{/if}}{{/if}}{{cidade_estado}}</div>
-          </div>
+
+    {{#each items}}
+    <div class="ficha">
+        <!-- HEADER LIMPO -->
+        <div class="header">
+            <div class="header-item">
+                <span class="h-label">DATA DE ENVIO:</span>
+                <span class="h-value">{{data_envio}}</span>
+            </div>
+            <div class="header-item">
+                <span class="h-label">PRIORIDADE:</span>
+                <span
+                    class="prioridade-tag {{#if (eq prioridade 'Alta')}}prioridade-alta-tag{{else}}{{#if (eq prioridade 'Média')}}prioridade-media-tag{{else}}prioridade-baixa-tag{{/if}}{{/if}}">
+                    {{prioridade}}
+                </span>
+            </div>
+            <div class="header-item">
+                <span class="h-label">FORMA DE ENVIO:</span>
+                <span class="h-value">{{forma_envio}}</span>
+            </div>
         </div>
 
-        <div class="item-body">
-          <div class="col-left">
-            <!-- DESCRIÇÃO -->
-            <div class="section">
-              <div class="section-title">Descrição</div>
-              <div class="section-content">
-                <div class="spec-item"><strong>{{descricao}}</strong></div>
-                <div class="spec-item">Dimensões: {{dimensoes}}</div>
-                <div class="spec-item">Quantidade: {{quantity}}</div>
-              </div>
+        <!-- CONTEÚDO PRINCIPAL -->
+        <div class="main-section">
+            <!-- COLUNA ESQUERDA (45%) -->
+            <div class="col-left">
+                <!-- PEDIDO E CLIENTE -->
+                <div class="pedido-box">
+                    <div class="pedido-numero">
+                        #{{numero}}
+                        {{#if is_reposicao}}
+                        <span class="badge-reposicao">REPOSIÇÃO</span>
+                        {{/if}}
+                    </div>
+                    <div class="cliente-nome">{{cliente}}</div>
+                    <div class="cliente-info">{{telefone_cliente}}{{#if cidade_estado}} • {{cidade_estado}}{{/if}}</div>
+                    <span class="tipo-badge {{tipo_producao}}">{{tipo_producao}}</span>
+                </div>
+
+                <div class="left-content">
+                    <!-- PRODUTO -->
+                    <div class="produto-nome">{{descricao}}</div>
+
+                    <div class="info-grid">
+                        <div>
+                            <div class="info-label">Dimensões</div>
+                            <div class="info-value">{{dimensoes}}</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div class="info-label">Quantidade</div>
+                            <div class="info-value qty">{{quantity}}</div>
+                        </div>
+                    </div>
+
+                    <!-- FICHA TÉCNICA -->
+                    <div class="tech-section">
+                        <div class="tech-item">
+                            <span class="tech-label">Material:</span> {{material}}
+                        </div>
+                        <div class="tech-item">
+                            <span class="tech-label">Emenda:</span> {{emenda_label}}{{#if emenda_qtd}}
+                            ({{emenda_qtd}}){{/if}}
+                        </div>
+                    </div>
+
+                    <!-- ESPECIFICAÇÕES -->
+                    <ul class="specs">
+                        {{#if (eq tipo_producao 'painel')}}
+                        <li><b>Acabamento:</b> {{acabamentos_painel}}</li>
+                        <li><b>Costura:</b> Overloque ({{overloque}}) / Elástico ({{elastico}})</li>
+                        <li><b>Ilhós:</b> {{ilhos_resumo}} | <b>Corda:</b> {{cordinha_resumo}}</li>
+                        {{/if}}
+
+                        {{#if (eq tipo_producao 'totem')}}
+                        <li><b>Acabamento:</b> {{acabamento_totem_resumo}}</li>
+                        {{#if quantidade_totem}}<li><b>Quantidade:</b> {{quantidade_totem}}</li>{{/if}}
+                        {{/if}}
+
+                        {{#if (eq tipo_producao 'lona')}}
+                        <li><b>Acabamento:</b> {{acabamento_lona}}</li>
+                        <li><b>Ilhós:</b> {{quantidade_ilhos}} ({{espaco_ilhos}})</li>
+                        {{/if}}
+
+                        {{#if (eq tipo_producao 'adesivo')}}
+                        <li><b>Tipo:</b> {{tipo_adesivo}} | <b>Qtd:</b> {{quantidade_adesivo}}</li>
+                        {{/if}}
+                    </ul>
+
+                    <!-- OBSERVAÇÕES -->
+                    <div class="obs-container">
+                        {{#if observacao}}
+                        <div class="obs pedido">
+                            <div class="obs-title">📋 Obs. Pedido</div>
+                            <div>{{observacao}}</div>
+                        </div>
+                        {{else}}
+                        {{#if observacao_pedido}}
+                        <div class="obs pedido">
+                            <div class="obs-title">📋 Obs. Pedido</div>
+                            <div>{{observacao_pedido}}</div>
+                        </div>
+                        {{/if}}
+                        {{/if}}
+
+                        {{#if observacao_item}}
+                        <div class="obs">
+                            <div class="obs-title">⚠️ Obs. Produção</div>
+                            <div>{{observacao_item}}</div>
+                        </div>
+                        {{/if}}
+                    </div>
+                </div>
             </div>
 
-            <!-- ESPECIFICAÇÕES TÉCNICAS -->
-            <div class="section">
-              <div class="section-title">Especificações Técnicas</div>
-              <div class="section-content">
-                <div class="spec-item"><strong>Material:</strong> {{material}}</div>
-                <div class="spec-item"><strong>Emenda:</strong> {{emenda_label}}</div>
-                <div class="spec-item" data-show-if="{{emenda_qtd}}">Qtd. Emendas: {{emenda_qtd}}</div>
-                
-                {{#if (eq tipo_producao 'painel')}}
-                <div class="bullets">
-                  <div class="bullet-item">Acabamentos: {{acabamentos_painel}}</div>
-                  <div class="bullet-item">Overloque: {{overloque}}</div>
-                  <div class="bullet-item">Elástico: {{elastico}}</div>
-                  <div class="bullet-item">Ilhós: {{ilhos_resumo}}</div>
-                  <div class="bullet-item">Cordinha: {{cordinha_resumo}}</div>
-                  <div class="bullet-item" data-show-if="{{quantidade_paineis}}">Qtd. Painéis: {{quantidade_paineis}}</div>
+            <!-- COLUNA DIREITA - IMAGEM (55%) -->
+            <div class="col-right">
+                <div class="img-title">Visualização da Arte</div>
+                <div class="img-box">
+                    {{#if imagem}}
+                    <img src="{{imagem}}" alt="Arte"
+                        onerror="this.style.display='none'; this.parentNode.innerHTML='<span class=\'no-img\'>SEM IMAGEM</span>';">
+                    {{else}}
+                    <span class="no-img">SEM PRÉVIA</span>
+                    {{/if}}
                 </div>
+                {{#if legenda_imagem}}
+                <div class="img-caption">{{legenda_imagem}}</div>
                 {{/if}}
-
-                {{#if (eq tipo_producao 'totem')}}
-                <div class="bullets">
-                  <div class="bullet-item">Acabamento: {{acabamento_totem_resumo}}</div>
-                  <div class="bullet-item" data-show-if="{{acabamento_totem_outro}}">Obs.: {{acabamento_totem_outro}}</div>
-                  <div class="bullet-item" data-show-if="{{quantidade_totem}}">Qtd. Totens: {{quantidade_totem}}</div>
-                </div>
-                {{/if}}
-
-                {{#if (eq tipo_producao 'lona')}}
-                <div class="bullets">
-                  <div class="bullet-item" data-show-if="{{acabamento_lona}}">Acabamento Lona: {{acabamento_lona}}</div>
-                  <div class="bullet-item" data-show-if="{{quantidade_lona}}">Qtd. Lonas: {{quantidade_lona}}</div>
-                  <div class="bullet-item" data-show-if="{{quantidade_ilhos}}">Ilhós: {{quantidade_ilhos}}</div>
-                  <div class="bullet-item" data-show-if="{{espaco_ilhos}}">Espaçamento Ilhós: {{espaco_ilhos}}</div>
-                  <div class="bullet-item" data-show-if="{{quantidade_cordinha}}">Cordinha: {{quantidade_cordinha}}</div>
-                  <div class="bullet-item" data-show-if="{{espaco_cordinha}}">Espaçamento Cordinha: {{espaco_cordinha}}</div>
-                </div>
-                {{/if}}
-
-                {{#if (eq tipo_producao 'adesivo')}}
-                <div class="bullets">
-                  <div class="bullet-item" data-show-if="{{tipo_adesivo}}">Tipo Adesivo: {{tipo_adesivo}}</div>
-                  <div class="bullet-item" data-show-if="{{quantidade_adesivo}}">Qtd. Adesivos: {{quantidade_adesivo}}</div>
-                </div>
-                {{/if}}
-
-                {{#if observacao_item}}
-                <div class="observacao-box">
-                  <div class="spec-item"><strong>⚠ Observação:</strong> {{observacao_item}}</div>
-                </div>
-                {{/if}}
-
-                <div class="two-col">
-                  <div class="spec-item" data-show-if="{{designer}}"><strong>Designer:</strong> {{designer}}</div>
-                  <div class="spec-item" data-show-if="{{vendedor}}"><strong>Vendedor:</strong> {{vendedor}}</div>
-                </div>
-              </div>
             </div>
-          </div>
-
-          {{#if imagem}}
-          <div class="col-right">
-            <div class="section-title">Visualização</div>
-            <div class="image-box">
-              <img src="{{imagem}}" alt="Preview do item" onerror="this.style.display='none';">
-            </div>
-            {{#if legenda_imagem}}
-            <div class="legend">{{legenda_imagem}}</div>
-            {{/if}}
-          </div>
-          {{/if}}
         </div>
-      </div>
 
-      <!-- ITEM 2 -->
-      <div class="item" data-tipo-producao="{{tipo_producao}}">
-        <!-- Mesma estrutura do ITEM 1 -->
-      </div>
-
-      <!-- ITEM 3 -->
-      <div class="item" data-tipo-producao="{{tipo_producao}}">
-        <!-- Mesma estrutura do ITEM 1 -->
-      </div>
-
-  </div>
+        <!-- FOOTER -->
+        <div class="footer">
+            <div class="footer-item">
+                <div class="footer-label">Designer</div>
+                <div class="footer-value">{{designer}}</div>
+            </div>
+            <div class="footer-item">
+                <div class="footer-label">Vendedor</div>
+                <div class="footer-value">{{vendedor}}</div>
+            </div>
+            <div class="footer-item footer-right">
+                <div class="footer-label">Controle de Produção</div>
+                <div>RIP: _______ DATA: __/__/__</div>
+            </div>
+        </div>
+    </div>
+    {{/each}}
 
 </body>
+
 </html>
