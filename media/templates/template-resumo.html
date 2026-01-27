@@ -12,108 +12,114 @@
         }
 
         @page {
-            size: A4;
+            size: A4 portrait;
             margin: 0;
         }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-            color: #000;
-            background: #fff;
-        }
-
-        /* RESET IMPRESSÃO */
         @media print {
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
             body {
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+
+            @page {
                 margin: 0;
+                size: A4 portrait;
             }
         }
 
-        /* FICHA - 210mm x 135mm (Total 270mm < 297mm A4) */
-        /* Margem de segurança de ~27mm para evitar quebra errada */
-        .ficha {
-            width: 210mm;
-            height: 135mm;
-            position: relative;
-            page-break-inside: avoid;
-            padding: 5mm;
-            overflow: hidden;
-            border-bottom: 2px dashed #999;
-            margin-bottom: 0;
-            display: block;
-            /* Garante bloco */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            color: #1a1a1a;
+            background: #fff;
+            -webkit-font-smoothing: antialiased;
+            margin: 0;
+            padding: 0;
         }
 
-        /* HEADER LIMPO - 8mm fixo com fundo sutil */
+        /* FICHA - 148mm (2 × 148 = 296mm, cabe em 297mm) */
+        .ficha {
+            width: 98%;
+            margin: 0 auto;
+            height: 148mm;
+            max-height: 148mm;
+            min-height: 148mm;
+            position: relative;
+            page-break-inside: avoid !important;
+            padding: 5mm;
+            overflow: hidden;
+            display: block;
+            box-sizing: border-box;
+        }
+
+        /* HEADER - 7mm fixo */
         .header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            height: 8mm;
-            border-bottom: 1px solid #ccc;
-            background-color: #f9f9f9;
-            margin-bottom: 3mm;
-            padding: 0 4mm;
-            /* Padding lateral */
-            font-size: 10px;
-            overflow: hidden;
+            height: 7mm;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 2mm;
+            font-size: 9px;
+            flex-shrink: 0;
         }
 
         .header-item {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 3px;
         }
 
         .h-label {
             font-weight: 700;
             text-transform: uppercase;
-            color: #555;
-            font-size: 9px;
+            color: #666;
+            font-size: 8px;
+            letter-spacing: 0.3px;
         }
 
         .h-value {
             font-weight: 600;
             color: #000;
-            text-transform: uppercase;
+            font-size: 9px;
         }
 
-        /* PRIORIDADE EM FORMATO DE PILL */
+        /* PRIORIDADE - Apenas texto colorido */
         .prioridade-tag {
             font-weight: 700;
             text-transform: uppercase;
-            padding: 1px 6px;
-            border-radius: 4px;
             font-size: 9px;
         }
 
         .prioridade-alta-tag {
-            color: #dc3545;
-            background: #fff0f0;
-            border: 1px solid #ffcccc;
+            color: #d32f2f;
         }
 
         .prioridade-media-tag {
-            color: #856404;
-            background: #fff3cd;
-            border: 1px solid #ffeeba;
+            color: #f57f17;
         }
 
         .prioridade-baixa-tag {
-            color: #155724;
-            background: #d4edda;
-            border: 1px solid #c3e6cb;
+            color: #388e3c;
         }
 
-        /* SEÇÃO PRINCIPAL - 110mm fixo */
+        /* SEÇÃO PRINCIPAL - 125mm */
         .main-section {
             display: flex;
-            gap: 4mm;
-            height: 110mm;
+            gap: 3mm;
+            height: 125mm;
+            max-height: 125mm;
             overflow: hidden;
+            flex-shrink: 0;
+            margin-bottom: 0;
         }
 
-        /* COLUNA ESQUERDA - 90mm fixo */
+        /* COLUNA ESQUERDA */
         .col-left {
             flex: 0 0 90mm;
             display: flex;
@@ -121,252 +127,306 @@
             overflow: hidden;
         }
 
-        /* PEDIDO E CLIENTE - Mais limpo */
+        /* PEDIDO E CLIENTE - 20mm MÁXIMO */
         .pedido-box {
-            border-bottom: 1px dashed #ddd;
             padding-bottom: 2mm;
             margin-bottom: 2mm;
+            border-bottom: 1px solid #e0e0e0;
             flex-shrink: 0;
-            height: 25mm;
+            height: 20mm;
+            max-height: 20mm;
             overflow: hidden;
         }
 
         .pedido-numero {
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 800;
-            line-height: 0.9;
-            margin-bottom: 2px;
+            line-height: 0.95;
+            margin-bottom: 1mm;
             color: #000;
             white-space: nowrap;
             letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
 
         .badge-reposicao {
             display: inline-block;
             background: #ff6b35;
             color: #fff;
-            padding: 2px 6px;
-            font-size: 8px;
+            padding: 1px 6px;
+            font-size: 7px;
             font-weight: 700;
-            border-radius: 4px;
+            border-radius: 3px;
             text-transform: uppercase;
-            margin-left: 6px;
+            letter-spacing: 0.8px;
+            margin-left: 4px;
             vertical-align: middle;
-            letter-spacing: 0.5px;
+        }
+
+        .cliente-info-wrapper {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 2mm;
+        }
+
+        .cliente-details {
+            flex: 1;
+            min-width: 0;
         }
 
         .cliente-nome {
-            font-size: 14px;
+            font-size: 12px;
             font-weight: 700;
             text-transform: uppercase;
-            margin-bottom: 3px;
-            line-height: 1.1;
+            margin-bottom: 1mm;
+            line-height: 1;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            color: #333;
+            color: #000;
         }
 
         .cliente-info {
-            font-size: 9px;
+            font-size: 8px;
             color: #666;
-            display: flex;
-            align-items: center;
+            line-height: 1.2;
         }
 
         .tipo-badge {
             display: inline-block;
             padding: 2px 6px;
             font-weight: 700;
-            font-size: 8px;
+            font-size: 7px;
             text-transform: uppercase;
-            border-radius: 4px;
-            margin-top: 2px;
+            border-radius: 3px;
+            white-space: nowrap;
+            flex-shrink: 0;
+            border: 1px solid;
         }
 
         .tipo-badge.painel {
-            color: #004085;
-            background-color: #cce5ff;
-            border: 1px solid #b8daff;
+            color: #1976d2;
+            border-color: #1976d2;
         }
 
         .tipo-badge.lona {
-            color: #155724;
-            background-color: #d4edda;
-            border: 1px solid #c3e6cb;
+            color: #388e3c;
+            border-color: #388e3c;
         }
 
         .tipo-badge.totem {
-            color: #380d75;
-            background-color: #e0cffc;
-            border: 1px solid #d6bbfb;
+            color: #7b1fa2;
+            border-color: #7b1fa2;
         }
 
         .tipo-badge.adesivo {
-            color: #856404;
-            background-color: #fff3cd;
-            border: 1px solid #ffeeba;
+            color: #f57c00;
+            border-color: #f57c00;
         }
 
-        /* CONTEÚDO ESQUERDA - Restante da altura */
+        /* CONTEÚDO ESQUERDA */
         .left-content {
             flex: 1;
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
         }
 
-        /* PRODUTO */
         .produto-nome {
-            font-size: 13px;
+            font-size: 11px;
             font-weight: 700;
             text-transform: uppercase;
             margin-bottom: 2mm;
             line-height: 1.1;
-            max-height: 10mm;
+            max-height: 8mm;
             overflow: hidden;
-            color: #222;
+            color: #000;
+            border-left: 2px solid #1976d2;
+            padding-left: 2mm;
+            flex-shrink: 0;
         }
 
+        /* INFO GRID - 12mm */
         .info-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 2mm;
+            grid-template-columns: 1fr auto;
+            gap: 3mm;
             margin-bottom: 2mm;
-            padding: 2mm 3mm;
-            background: #f8f9fa;
-            border: 1px solid #eee;
-            border-radius: 4px;
-            height: 14mm;
+            height: 12mm;
+            max-height: 12mm;
             overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
         }
 
         .info-label {
             font-size: 7px;
             font-weight: 700;
             text-transform: uppercase;
-            color: #888;
-            margin-bottom: 1px;
+            color: #999;
+            margin-bottom: 1mm;
             letter-spacing: 0.5px;
         }
 
         .info-value {
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 700;
             color: #000;
+            line-height: 1.1;
+        }
+
+        .qty-box {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            justify-content: center;
+        }
+
+        .qty-label {
+            font-size: 7px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #999;
+            margin-bottom: 1mm;
         }
 
         .qty {
-            font-size: 18px;
+            font-size: 20px;
+            font-weight: 900;
             color: #d32f2f;
+            line-height: 1;
         }
 
-        /* FICHA TÉCNICA */
+        /* FICHA TÉCNICA - 9mm */
         .tech-section {
             margin-bottom: 2mm;
-            font-size: 9px;
-            height: 10mm;
-            overflow: hidden;
-            border-left: 2px solid #eee;
-            padding-left: 3mm;
-        }
-
-        .tech-title {
             font-size: 8px;
-            font-weight: 700;
-            text-transform: uppercase;
-            color: #aaa;
-            margin-bottom: 1px;
+            height: 9mm;
+            max-height: 9mm;
+            overflow: hidden;
+            border-left: 2px solid #e0e0e0;
+            padding-left: 2mm;
+            flex-shrink: 0;
         }
 
         .tech-item {
-            margin-bottom: 1px;
-            color: #333;
+            margin-bottom: 1mm;
+            color: #424242;
+            line-height: 1.3;
         }
 
         .tech-label {
             font-weight: 700;
-            color: #555;
+            color: #616161;
         }
 
+        .tech-value {
+            color: #212121;
+        }
+
+        /* SPECS - 25mm */
         .specs {
-            font-size: 9px;
+            font-size: 8px;
             line-height: 1.4;
-            height: 30mm;
-            /* Aumentado para mostrar mais specs */
+            height: 25mm;
+            max-height: 25mm;
             overflow: hidden;
+            flex-shrink: 0;
         }
 
         .specs li {
             list-style: none;
-            padding-left: 8px;
+            padding-left: 10px;
             position: relative;
-            margin-bottom: 1.5mm;
+            margin-bottom: 1mm;
+            color: #333;
         }
 
         .specs li::before {
-            content: "•";
+            content: "▪";
             position: absolute;
             left: 0;
             font-weight: 700;
+            color: #666;
         }
 
+        .specs b {
+            color: #000;
+            font-weight: 700;
+        }
+
+        /* OBSERVAÇÕES - 14mm máximo */
         .obs-container {
-            height: 15mm;
-            /* Ajustado para balancear com specs */
+            height: 14mm;
+            max-height: 14mm;
             overflow: hidden;
-            margin-top: 2mm;
+            margin-top: auto;
+            padding-top: 2mm;
+            flex-shrink: 0;
         }
 
         .obs {
-            border-left: 3px solid #ff6b35;
-            padding: 2mm;
-            background: #fff5f0;
-            font-size: 8px;
-            line-height: 1.2;
+            border-left: 3px solid #ff9800;
+            padding-left: 2mm;
+            font-size: 7px;
+            line-height: 1.3;
             height: 100%;
+            overflow: hidden;
         }
 
         .obs.pedido {
-            border-left-color: #0066cc;
-            background: #e6f2ff;
+            border-left-color: #2196f3;
         }
 
         .obs-title {
             font-weight: 700;
             text-transform: uppercase;
             margin-bottom: 1mm;
+            color: #666;
+            font-size: 7px;
         }
 
-        /* COLUNA DIREITA - IMAGEM (55%) */
+        /* COLUNA DIREITA - IMAGEM */
         .col-right {
             flex: 1;
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            height: 100%;
-            /* Força altura do pai */
+            min-height: 0;
         }
 
         .img-title {
-            font-size: 8px;
-            font-weight: 600;
+            font-size: 7px;
+            font-weight: 700;
             text-transform: uppercase;
-            color: #666;
+            color: #999;
             text-align: center;
             margin-bottom: 2mm;
-            height: 4mm;
+            flex-shrink: 0;
         }
 
         .img-box {
             flex: 1;
-            border: 2px solid #ddd;
+            border: 1px solid #ddd;
             border-radius: 3px;
             background: #fafafa;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             overflow: hidden;
-            max-height: 100mm;
-            /* Reduzido proporcionalmente */
+            max-height: 110mm;
+            min-height: 0;
+            gap: 2mm;
+            padding: 1mm;
         }
 
         .img-box img {
@@ -374,11 +434,21 @@
             max-height: 100%;
             object-fit: contain;
             display: block;
-            /* Remove espaço extra de inline */
+            flex-shrink: 1;
+            /* Permite diminuir para caber mais de uma */
+        }
+
+        .no-img-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            width: 100%;
+            color: #ccc;
         }
 
         .no-img {
-            color: #ccc;
             font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
@@ -396,21 +466,20 @@
             text-overflow: ellipsis;
         }
 
-        /* FOOTER SIMPLIFICADO */
+        /* FOOTER - 7mm */
         .footer {
             position: absolute;
             bottom: 4mm;
-            left: 5mm;
-            right: 5mm;
-            height: 8mm;
+            left: 4mm;
+            right: 4mm;
+            height: 7mm;
             border-top: 1px solid #ddd;
-            padding-top: 2px;
+            padding-top: 1mm;
             display: flex;
             justify-content: space-between;
-            font-size: 8px;
+            font-size: 7px;
             background: #fff;
             overflow: hidden;
-            color: #777;
         }
 
         .footer-item {
@@ -418,20 +487,23 @@
         }
 
         .footer-label {
-            font-size: 8px;
-            font-weight: 600;
+            font-size: 7px;
+            font-weight: 700;
             text-transform: uppercase;
-            color: #666;
+            color: #999;
         }
 
         .footer-value {
             font-weight: 600;
             color: #000;
+            margin-top: 1mm;
+            font-size: 8px;
         }
 
         .footer-right {
             text-align: right;
-            font-weight: 600;
+            color: #666;
+            font-size: 7px;
         }
     </style>
 </head>
@@ -439,29 +511,30 @@
 <body>
 
     {{#each items}}
+    {{#if descricao}}
     <div class="ficha">
-        <!-- HEADER LIMPO -->
+        <!-- HEADER -->
         <div class="header">
             <div class="header-item">
-                <span class="h-label">DATA DE ENVIO:</span>
+                <span class="h-label">Data Envio:</span>
                 <span class="h-value">{{data_envio}}</span>
             </div>
             <div class="header-item">
-                <span class="h-label">PRIORIDADE:</span>
+                <span class="h-label">Prioridade:</span>
                 <span
                     class="prioridade-tag {{#if (eq prioridade 'Alta')}}prioridade-alta-tag{{else}}{{#if (eq prioridade 'Média')}}prioridade-media-tag{{else}}prioridade-baixa-tag{{/if}}{{/if}}">
                     {{prioridade}}
                 </span>
             </div>
             <div class="header-item">
-                <span class="h-label">FORMA DE ENVIO:</span>
+                <span class="h-label">Transporte:</span>
                 <span class="h-value">{{forma_envio}}</span>
             </div>
         </div>
 
         <!-- CONTEÚDO PRINCIPAL -->
         <div class="main-section">
-            <!-- COLUNA ESQUERDA (45%) -->
+            <!-- COLUNA ESQUERDA -->
             <div class="col-left">
                 <!-- PEDIDO E CLIENTE -->
                 <div class="pedido-box">
@@ -471,34 +544,42 @@
                         <span class="badge-reposicao">REPOSIÇÃO</span>
                         {{/if}}
                     </div>
-                    <div class="cliente-nome">{{cliente}}</div>
-                    <div class="cliente-info">{{telefone_cliente}}{{#if cidade_estado}} • {{cidade_estado}}{{/if}}</div>
-                    <span class="tipo-badge {{tipo_producao}}">{{tipo_producao}}</span>
+                    <div class="cliente-info-wrapper">
+                        <div class="cliente-details">
+                            <div class="cliente-nome">{{cliente}}</div>
+                            <div class="cliente-info">
+                                {{telefone_cliente}}{{#if cidade_estado}}<br>{{cidade_estado}}{{/if}}
+                            </div>
+                        </div>
+                        <span class="tipo-badge {{tipo_producao}}">{{tipo_producao}}</span>
+                    </div>
                 </div>
 
                 <div class="left-content">
                     <!-- PRODUTO -->
                     <div class="produto-nome">{{descricao}}</div>
 
+                    <!-- INFO GRID -->
                     <div class="info-grid">
-                        <div>
+                        <div class="info-item">
                             <div class="info-label">Dimensões</div>
                             <div class="info-value">{{dimensoes}}</div>
                         </div>
-                        <div style="text-align: right;">
-                            <div class="info-label">Quantidade</div>
-                            <div class="info-value qty">{{quantity}}</div>
+                        <div class="qty-box">
+                            <div class="qty-label">QTD</div>
+                            <div class="qty">{{quantity}}</div>
                         </div>
                     </div>
 
                     <!-- FICHA TÉCNICA -->
                     <div class="tech-section">
                         <div class="tech-item">
-                            <span class="tech-label">Material:</span> {{material}}
+                            <span class="tech-label">Material:</span>
+                            <span class="tech-value">{{material}}</span>
                         </div>
                         <div class="tech-item">
-                            <span class="tech-label">Emenda:</span> {{emenda_label}}{{#if emenda_qtd}}
-                            ({{emenda_qtd}}){{/if}}
+                            <span class="tech-label">Emenda:</span>
+                            <span class="tech-value">{{emenda_label}}{{#if emenda_qtd}} ({{emenda_qtd}}){{/if}}</span>
                         </div>
                     </div>
 
@@ -527,23 +608,16 @@
 
                     <!-- OBSERVAÇÕES -->
                     <div class="obs-container">
-                        {{#if observacao}}
-                        <div class="obs pedido">
-                            <div class="obs-title">📋 Obs. Pedido</div>
-                            <div>{{observacao}}</div>
-                        </div>
-                        {{else}}
                         {{#if observacao_pedido}}
                         <div class="obs pedido">
-                            <div class="obs-title">📋 Obs. Pedido</div>
+                            <div class="obs-title">📋 Observações do Pedido</div>
                             <div>{{observacao_pedido}}</div>
                         </div>
-                        {{/if}}
                         {{/if}}
 
                         {{#if observacao_item}}
                         <div class="obs">
-                            <div class="obs-title">⚠️ Obs. Produção</div>
+                            <div class="obs-title">⚙️ Observações de Produção</div>
                             <div>{{observacao_item}}</div>
                         </div>
                         {{/if}}
@@ -551,15 +625,23 @@
                 </div>
             </div>
 
-            <!-- COLUNA DIREITA - IMAGEM (55%) -->
+            <!-- COLUNA DIREITA - IMAGEM -->
             <div class="col-right">
                 <div class="img-title">Visualização da Arte</div>
                 <div class="img-box">
+                    {{#if imagens}}
+                    {{#each imagens}}
+                    <img src="{{this}}" alt="Arte {{@index}}" onerror="this.style.display='none';">
+                    {{/each}}
+                    {{else}}
                     {{#if imagem}}
                     <img src="{{imagem}}" alt="Arte"
-                        onerror="this.style.display='none'; this.parentNode.innerHTML='<span class=\'no-img\'>SEM IMAGEM</span>';">
+                        onerror="this.style.display='none'; this.parentNode.innerHTML='<div class=\'no-img-wrapper\'><span class=\'no-img\'>ERRO NA IMAGEM</span></div>';">
                     {{else}}
-                    <span class="no-img">SEM PRÉVIA</span>
+                    <div class="no-img-wrapper">
+                        <span class="no-img">SEM PRÉVIA</span>
+                    </div>
+                    {{/if}}
                     {{/if}}
                 </div>
                 {{#if legenda_imagem}}
@@ -584,6 +666,7 @@
             </div>
         </div>
     </div>
+    {{/if}}
     {{/each}}
 
 </body>

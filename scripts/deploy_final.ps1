@@ -21,6 +21,7 @@ param(
     [Parameter()][bool]$InstallNSSM = $true,
     [Parameter()][bool]$CreateEnvFile = $false,
     [Parameter()][string]$SecretKey = "",
+    [Parameter()][bool]$UseVenv = $true,
     [Parameter()][switch]$SkipServiceInstall
 )
 
@@ -102,9 +103,23 @@ function Install-Dependencies {
         exit 1
     }
     try {
-        & $PythonPath -m pip install --upgrade pip
-        & $PythonPath -m pip install -r $requirementsPath
+        $installPython = $PythonPath
+        if ($UseVenv) {
+            $venvDir = Join-Path $ProjectPath ".venv"
+            if (-not (Test-Path $venvDir)) {
+                Write-Info "Criando venv em: $venvDir"
+                & $PythonPath -m venv $venvDir
+            }
+            $installPython = Join-Path $venvDir "Scripts\\python.exe"
+            if (-not (Test-Path $installPython)) {
+                Write-Error "Python do venv não encontrado em: $installPython"
+                exit 1
+            }
+        }
+        & $installPython -m pip install --upgrade pip
+        & $installPython -m pip install -r $requirementsPath
         Write-Success "Dependências instaladas com sucesso"
+        $script:RuntimePython = $installPython
     } catch {
         Write-Error "Falha ao instalar dependências: $_"
         exit 1
@@ -219,8 +234,16 @@ function Install-WindowsService {
     } else {
         $appArgs = "-m uvicorn main:app --host 0.0.0.0 --port $Port --loop asyncio"
     }
+    $servicePython = $PythonPath
+    if ($UseVenv) {
+        $servicePython = Join-Path $ProjectPath ".venv\\Scripts\\python.exe"
+        if (-not (Test-Path $servicePython)) {
+            Write-Error "Python do venv não encontrado em: $servicePython"
+            exit 1
+        }
+    }
     try {
-        & $NSSMPath install $ServiceName $PythonPath $appArgs
+        & $NSSMPath install $ServiceName $servicePython $appArgs
         & $NSSMPath set $ServiceName AppDirectory $ProjectPath
         & $NSSMPath set $ServiceName DisplayName "SGP API Server"
         & $NSSMPath set $ServiceName Description "API Sistema de Gestão de Produção (SGP)"
@@ -231,7 +254,7 @@ function Install-WindowsService {
         & $NSSMPath set $ServiceName AppStdout (Join-Path $sharedLogs "service_stdout.log")
         & $NSSMPath set $ServiceName AppStderr (Join-Path $sharedLogs "service_stderr.log")
         Write-Success "Serviço instalado com sucesso"
-        Write-Info "Comando: $PythonPath $appArgs"
+        Write-Info "Comando: $servicePython $appArgs"
     } catch {
         Write-Error "Falha ao instalar serviço: $_"
         exit 1
