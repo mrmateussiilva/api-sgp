@@ -2,7 +2,7 @@
 # Arquitetura de releases versionadas com diretórios compartilhados
 
 # Configurações
-VERSION ?= 1.0.5
+VERSION ?= 1.0.20
 API_ROOT ?= /opt/api
 RELEASES_DIR = $(API_ROOT)/releases
 SHARED_DIR = $(API_ROOT)/shared
