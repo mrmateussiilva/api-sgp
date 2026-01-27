@@ -18,6 +18,9 @@ credentials/
 *.db-wal
 *.db-journal
 
+# Bancos (não versionar nenhum .db)
+*.db
+
 # Bancos de desenvolvimento e temporários
 db/dev.db
 db/dev.db-shm
@@ -58,7 +61,7 @@ shared/media/**
 # ============================================
 # MÍDIA E UPLOADS (exceto templates)
 # ============================================
-#media/**/*
+media/**
 media/pedidos/**
 !media/.gitkeep
 !media/templates/
