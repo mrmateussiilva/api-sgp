@@ -35,12 +35,16 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = [
         "http://localhost:1420",
         "http://127.0.0.1:1420",
+        "http://localhost:3000",
         "http://localhost",
         "http://127.0.0.1",
         "http://tauri.localhost",
         "tauri://localhost",
     ]
-    BACKEND_CORS_ALLOW_ORIGIN_REGEX: Optional[str] = r"(tauri://.*|http://tauri\.localhost.*|http://.*\.localhost.*)"
+    BACKEND_CORS_ALLOW_ORIGIN_REGEX: Optional[str] = (
+        r"(tauri://.*|http://tauri\.localhost.*|http://.*\.localhost.*|"
+        r"http://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?|http://10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?)"
+    )
 
     # Configurações de Segurança
     SECRET_KEY: SecretStr = SecretStr("change-me")
