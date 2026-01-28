@@ -167,7 +167,10 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(token: str = Depends(oauth2_scheme)):
+async def logout(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_session)
+):
     """
     Endpoint de logout
     """
@@ -178,7 +181,7 @@ async def logout(token: str = Depends(oauth2_scheme)):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
 
         exp_datetime = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
-        _revoke_token(token, exp_datetime)
+        await _revoke_token(token, exp_datetime, db)
 
         return {
             "success": True,

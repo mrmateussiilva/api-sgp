@@ -59,7 +59,7 @@ wheels = [
 
 [[package]]
 name = "api-sistemas-fichas"
-version = "1.0.7"
+version = "1.0.20"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
