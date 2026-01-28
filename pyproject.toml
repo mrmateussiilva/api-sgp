@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.115.14",
     "uvicorn>=0.35.0",
     "hypercorn>=0.17.0",
+    "httptools>=0.6.4; platform_system != 'Windows'",
     "sqlmodel>=0.0.16",
     "pydantic>=2.11.7",
     "pydantic-settings>=2.3.0",
@@ -24,6 +25,8 @@ dependencies = [
     "openpyxl>=3.1.0",
     "xlsxwriter>=3.1.0",
     "alembic>=1.14.0",
+    "uvloop>=0.21.0; platform_system != 'Windows'",
+    "watchfiles>=1.1.0; platform_system != 'Windows'",
 ]
 
 [project.optional-dependencies]
