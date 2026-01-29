@@ -306,6 +306,7 @@ if __name__ == "__main__":
     # Se workers > 0, usar hypercorn (suporta workers no Windows)
     if args.workers > 0:
         try:
+            import asyncio
             import hypercorn.asyncio
             from hypercorn.config import Config
             
@@ -321,7 +322,7 @@ if __name__ == "__main__":
             print(f"   Loop: {args.loop}")
             print()
             
-            hypercorn.asyncio.serve(app, config)
+            asyncio.run(hypercorn.asyncio.serve(app, config))
         except ImportError:
             print("⚠️  Hypercorn não encontrado. Usando Uvicorn sem workers.")
             uvicorn.run(app, host=host, port=port, loop=args.loop)
