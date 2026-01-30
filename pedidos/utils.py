@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any, Iterable
 import json
 
+from sqlmodel import select
+
+from pedidos.schema import Pedido
+from pedidos.service import json_string_to_items
+
 DEFAULT_KEY_FIELDS = ("numero", "pedido_id", "id_pedido", "id")
 
 DEFAULT_PEDIDO_FIELDS = {
@@ -138,3 +143,23 @@ def agrupar_pedidos(
         resultado.append(pedido)
 
     return resultado
+
+
+async def find_order_by_item_id(session, item_id: int):
+    # Buscar todos os pedidos (ou filtrar por status se performance for critica)
+    # Como nao temos tabela de itens, precisamos iterar.
+    # TODO: Em producao idealmente teriamos tabela de itens ou indice no JSON.
+    stmt = select(Pedido)
+    result = await session.exec(stmt)
+    pedidos = result.all()
+
+    for pedido in pedidos:
+        if not pedido.items:
+            continue
+
+        items = json_string_to_items(pedido.items)
+        for i, item in enumerate(items):
+            if item.id == item_id:
+                return pedido, i, item
+
+    return None, None, None

@@ -1667,3 +1667,61 @@ async def listar_pedidos_por_status(status: str, session: AsyncSession = Depends
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao listar pedidos por status: {str(e)}")
+
+
+@router.patch("/pedido-itens/{item_id}")
+async def update_pedido_item(
+    item_id: int,
+    payload: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+    #user: User = Depends(get_current_user) # Opcional: validar user
+):
+    """
+    Atualiza um item específico dentro do JSON de itens de um pedido.
+    Como os itens não são tabelas separadas, precisamos:
+    1. Encontrar o pedido que contém este item_id
+    2. Atualizar o item específico
+    3. Salvar o pedido inteiro novamente
+    """
+    from .utils import find_order_by_item_id
+    
+    pedido, index, item = await find_order_by_item_id(session, item_id)
+    
+    if not pedido:
+        raise HTTPException(status_code=404, detail=f"Item {item_id} não encontrado em nenhum pedido.")
+        
+    # Atualizar campos do item
+    current_data = item.model_dump()
+    updated_data = {**current_data, **payload}
+    
+    # Validar tipos (o frontend manda string, mas schema pode ter int/float)
+    # A conversão básica é feita pelo Pydantic ao recriar o objeto
+    
+    # Atualizar o item na lista do pedido
+    # Primeiro deserializamos todos (já feito em find_order_by_item_id mas precisamos da lista completa)
+    items = json_string_to_items(pedido.items)
+    
+    # Recriar o item com os novos dados
+    # Importante: manter o ID original
+    updated_data['id'] = item_id 
+    
+    # Atualizar no array
+    # Como ItemPedido é Pydantic, podemos instanciar ou usar dict. 
+    # O json_string_to_items retorna objetos ItemPedido.
+    # Vamos converter o dict atualizado para o objeto ItemPedido
+    try:
+        new_item = ItemPedido(**updated_data)
+        items[index] = new_item
+    except Exception as e:
+        logger.error(f"Erro ao validar item atualizado: {e}")
+        raise HTTPException(status_code=400, detail=f"Dados inválidos para o item: {str(e)}")
+    
+    # Serializar de volta para JSON e salvar pedido
+    pedido.items = items_to_json_string(items)
+    pedido.ultima_atualizacao = datetime.utcnow()
+    
+    session.add(pedido)
+    await session.commit()
+    await session.refresh(pedido)
+    
+    return {"status": "success", "message": "Item atualizado", "item": new_item}
