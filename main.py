@@ -98,11 +98,15 @@ from relatorios.router import router as relatorios_router
 from relatorios_fechamentos.router import router as relatorios_fechamentos_router
 from relatorios_envios.router import router as relatorios_envios_router
 from reposicoes.router import router as reposicoes_router
+from maquinas.router import router as maquinas_router
+
 
 # Importar modelos para garantir que as tabelas sejam criadas
 from fichas.schema import Ficha, FichaTemplateModel  # noqa: F401
 from relatorios.schema import RelatorioTemplateModel  # noqa: F401
 from producoes.schema import Producao  # noqa: F401
+from maquinas.schema import Machine  # noqa: F401
+
 
 setup_logging()
 
@@ -151,6 +155,8 @@ app.include_router(fichas_router, prefix=settings.API_V1_STR)
 app.include_router(relatorios_fechamentos_router, prefix=settings.API_V1_STR)
 app.include_router(relatorios_envios_router, prefix=settings.API_V1_STR)
 app.include_router(reposicoes_router, prefix=settings.API_V1_STR)
+app.include_router(maquinas_router, prefix=settings.API_V1_STR)
+
 
 @app.get("/")
 async def root():

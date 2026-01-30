@@ -156,6 +156,8 @@ class ItemPedido(SQLModel):
     valor_unitario: Optional[str] = None
     imagem: Optional[str] = None
     imagem_path: Optional[str] = None
+    composicao_tecidos: Optional[str] = None
+    machine_id: Optional[int] = None
 
     # Campos adicionais manipulados pelo frontend
     tipo_acabamento: Optional[str] = None
@@ -195,6 +197,12 @@ class ItemPedido(SQLModel):
     toalha_pronta: Optional[bool] = None
 
     outros_valores: Optional[str] = None
+
+    # Campos de produção (adicionados explicitamente para persistência)
+    rip_maquina: Optional[str] = None
+    data_impressao: Optional[str] = None
+    perfil_cor: Optional[str] = None
+    tecido_fornecedor: Optional[str] = None
 
 
 class PedidoBase(SQLModel):
