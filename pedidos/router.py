@@ -1710,7 +1710,9 @@ async def update_pedido_item(
     # O json_string_to_items retorna objetos ItemPedido.
     # Vamos converter o dict atualizado para o objeto ItemPedido
     try:
+        logger.info(f"Atualizando item {item_id} com payload: {payload}")
         new_item = ItemPedido(**updated_data)
+        logger.info(f"Novo item criado: {new_item.model_dump()}")
         items[index] = new_item
     except Exception as e:
         logger.error(f"Erro ao validar item atualizado: {e}")
