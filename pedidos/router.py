@@ -1684,11 +1684,40 @@ async def update_pedido_item(
     3. Salvar o pedido inteiro novamente
     """
     from .utils import find_order_by_item_id
-    
-    pedido, index, item = await find_order_by_item_id(session, item_id)
+
+    pedido_id = payload.pop("pedido_id", None)
+    if pedido_id is not None:
+        try:
+            pedido_id = int(pedido_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="pedido_id inválido.")
+
+    if pedido_id is not None:
+        pedido = await session.get(Pedido, pedido_id)
+        if not pedido:
+            raise HTTPException(status_code=404, detail="Pedido não encontrado.")
+
+        items = json_string_to_items(pedido.items)
+        index = None
+        item = None
+        for i, candidate in enumerate(items):
+            if candidate.id == item_id:
+                index = i
+                item = candidate
+                break
+            if candidate.id is None and pedido.id is not None:
+                fallback_id = pedido.id * 1000 + i
+                if fallback_id == item_id:
+                    index = i
+                    item = candidate
+                    break
+    else:
+        pedido, index, item = await find_order_by_item_id(session, item_id)
     
     if not pedido:
         raise HTTPException(status_code=404, detail=f"Item {item_id} não encontrado em nenhum pedido.")
+    if index is None or item is None:
+        raise HTTPException(status_code=404, detail=f"Item {item_id} não encontrado no pedido informado.")
         
     # Atualizar campos do item
     current_data = item.model_dump()

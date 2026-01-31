@@ -161,5 +161,9 @@ async def find_order_by_item_id(session, item_id: int):
         for i, item in enumerate(items):
             if item.id == item_id:
                 return pedido, i, item
+            if item.id is None and pedido.id is not None:
+                fallback_id = pedido.id * 1000 + i
+                if fallback_id == item_id:
+                    return pedido, i, item
 
     return None, None, None
