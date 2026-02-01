@@ -3,7 +3,7 @@ from typing import Any, List, Optional
 import logging
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Body, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, UploadFile, File, Form, BackgroundTasks
 from sqlmodel import select, and_, or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import text, func
@@ -55,6 +55,7 @@ import aiofiles
 from pathlib import Path
 from uuid import uuid4
 import mimetypes
+from shared.vps_sync_service import vps_sync_service
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored", auto_error=False)
 
@@ -789,6 +790,7 @@ async def obter_pedido_json(
 @router.post("/", response_model=PedidoResponse)
 async def criar_pedido(
     pedido: PedidoCreate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
     token: Optional[str] = Depends(oauth2_scheme)
 ):
@@ -831,7 +833,10 @@ async def criar_pedido(
                 db_pedido.items = items_to_json_string(items_payload)
 
             await session.commit()
-            await session.refresh(db_pedido)
+            try:
+                await session.refresh(db_pedido)
+            except Exception as e:
+                logger.warning("Falha ao dar refresh no pedido %s após commit (concorrência): %s", db_pedido.id, e)
 
             pedido_dict = db_pedido.model_dump()
             cidade, estado = decode_city_state(pedido_dict.get("cidade_cliente"))
@@ -862,6 +867,9 @@ async def criar_pedido(
 
             
             broadcast_order_event("order_created", response, None, user_info)
+            
+            # Sincronizar com a VPS (Background)
+            background_tasks.add_task(vps_sync_service.sync_pedido, response)
 
             return response
 
@@ -1355,6 +1363,7 @@ async def obter_pedido(pedido_id: int, session: AsyncSession = Depends(get_sessi
 async def atualizar_pedido(
     pedido_id: int,
     pedido_update: PedidoUpdate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
     is_admin: bool = Depends(get_current_user_admin),
     token: Optional[str] = Depends(oauth2_scheme)
@@ -1506,6 +1515,9 @@ async def atualizar_pedido(
                     logger.debug("[Pedidos] Enviando broadcast 'order_status_updated' para pedido %s", pedido_id)
                 broadcast_order_event("order_status_updated", response, None, user_info)
             
+            # Sincronizar com a VPS (Background) após qualquer atualização bem-sucedida
+            background_tasks.add_task(vps_sync_service.sync_pedido, response)
+
             return response
             
         except HTTPException:
@@ -1558,6 +1570,7 @@ async def atualizar_pedido(
 @router.delete("/{pedido_id}")
 async def deletar_pedido(
     pedido_id: int,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
     _admin: bool = Depends(require_admin)
 ):
@@ -1570,6 +1583,11 @@ async def deletar_pedido(
         if not db_pedido:
             raise HTTPException(status_code=404, detail="Pedido não encontrado")
 
+        # Tabela PedidoResponse para o sync (antes de deletar)
+        items = json_string_to_items(db_pedido.items or "[]")
+        await populate_items_with_image_paths(session, pedido_id, items)
+        pedido_res = PedidoResponse(**pedido_to_response_dict(db_pedido, items))
+
         images_result = await session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido_id))
         for image in images_result.all():
             await delete_media_file(image.path)
@@ -1578,6 +1596,10 @@ async def deletar_pedido(
         await session.delete(db_pedido)
         await session.commit()
         broadcast_order_event("order_deleted", order_id=pedido_id)
+
+        # Sincronizar deleção com a VPS
+        background_tasks.add_task(vps_sync_service.sync_deletion, pedido_res)
+
         return {"message": "Pedido deletado com sucesso"}
         
     except HTTPException:
@@ -1589,6 +1611,7 @@ async def deletar_pedido(
 
 @router.delete("/all")
 async def deletar_todos_pedidos(
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
     _admin: bool = Depends(require_admin)
 ):
@@ -1601,6 +1624,13 @@ async def deletar_todos_pedidos(
         result = await session.exec(select(Pedido))
         all_pedidos = result.all()
         
+        # Preparar dados para o sync antes de deletar
+        pedidos_para_sync = []
+        for pedido in all_pedidos:
+            items = json_string_to_items(pedido.items or "[]")
+            await populate_items_with_image_paths(session, pedido.id, items)
+            pedidos_para_sync.append(PedidoResponse(**pedido_to_response_dict(pedido, items)))
+
         # Deletar imagens de todos os pedidos
         for pedido in all_pedidos:
             images_result = await session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido.id))
@@ -1614,6 +1644,11 @@ async def deletar_todos_pedidos(
         
         await session.commit()
         broadcast_order_event("order_deleted", order_id=None)
+
+        # Sincronizar deleção em massa (para cada pedido)
+        for pedido_res in pedidos_para_sync:
+            background_tasks.add_task(vps_sync_service.sync_deletion, pedido_res)
+
         return {"message": "Todos os pedidos foram deletados com sucesso"}
         
     except Exception as e:

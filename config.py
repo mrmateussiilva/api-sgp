@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     SECRET_KEY: SecretStr = SecretStr("change-me")
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 dias
+    
+    # VPS Sync
+    VPS_SYNC_URL: str = "https://api-sgp-mobile.finderbit.com.br/internal/sync/pedidos"
+    VPS_SYNC_API_KEY: Optional[str] = None
 
     # Logging
     LOG_LEVEL: str = "INFO"

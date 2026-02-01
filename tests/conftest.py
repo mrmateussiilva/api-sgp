@@ -12,8 +12,12 @@ from fastapi import FastAPI
 
 from main import app
 from database.database import get_session
+from config import settings
 from auth.models import User
 from auth.router import get_password_hash
+
+# Garantir ambiente de teste
+settings.ENVIRONMENT = "test"
 
 
 # URL do banco de dados em memória para testes
