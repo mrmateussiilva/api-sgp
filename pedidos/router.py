@@ -833,6 +833,35 @@ async def criar_pedido(
                 db_pedido.items = items_to_json_string(items_payload)
 
             await session.commit()
+            
+            # Registrar logs de produção para itens com máquina atribuída
+            try:
+                from maquinas.print_log_schema import PrintLog, PrintLogStatus
+                for item_idx, item in enumerate(items_payload):
+                    m_id = item.get("machine_id")
+                    if m_id and isinstance(m_id, (int, str)):
+                        try:
+                            m_id_int = int(m_id)
+                            if m_id_int > 0:
+                                # Tenta pegar o ID do item se ele já existir (o que não deve ser o caso aqui em um novo pedido, 
+                                # mas o prepare_items_for_storage pode ter populado algo se vier de um clone/sync)
+                                item_id_val = item.get("id")
+                                # Se não tem item_id, usamos um fallback baseado no pedido_id * 1000 + index
+                                if not item_id_val:
+                                    item_id_val = db_pedido.id * 1000 + item_idx
+
+                                print_log = PrintLog(
+                                    printer_id=m_id_int,
+                                    pedido_id=db_pedido.id,
+                                    item_id=item_id_val,
+                                    status=PrintLogStatus.SUCCESS
+                                )
+                                session.add(print_log)
+                        except (ValueError, TypeError):
+                            continue
+                await session.commit()
+            except Exception as log_error:
+                logger.warning(f"Erro ao criar logs iniciais de produção: {log_error}")
             try:
                 await session.refresh(db_pedido)
             except Exception as e:
@@ -1787,6 +1816,35 @@ async def update_pedido_item(
     pedido.ultima_atualizacao = datetime.utcnow()
     
     session.add(pedido)
+    
+    # Criar log de impressão se machine_id ou data_impressao estiverem presentes no payload
+    new_machine_id = payload.get("machine_id")
+    new_date = payload.get("data_impressao")
+    
+    if (new_machine_id or new_date):
+        try:
+            from maquinas.print_log_schema import PrintLog, PrintLogStatus
+            
+            # Decidir qual machine_id usar
+            m_id = None
+            if new_machine_id and isinstance(new_machine_id, (int, str)):
+                m_id = int(new_machine_id)
+            elif new_item.machine_id:
+                m_id = int(new_item.machine_id)
+                
+            if m_id and m_id > 0:
+                print_log = PrintLog(
+                    printer_id=m_id,
+                    pedido_id=pedido.id,
+                    item_id=item_id,
+                    status=PrintLogStatus.SUCCESS
+                )
+                session.add(print_log)
+                logger.info(f"Log de produção registrado automaticamente para item {item_id} na máquina {m_id}")
+        except Exception as log_error:
+            # Não falhar o update se o log der erro, mas avisar
+            logger.warning(f"Erro ao criar log de produção automático: {log_error}")
+
     await session.commit()
     await session.refresh(pedido)
     

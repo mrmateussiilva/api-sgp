@@ -35,4 +35,9 @@ class PrintLogResponse(PrintLogBase):
     id: int
     printer_name: str
     pedido_numero: Optional[str] = None
+    cliente: Optional[str] = None
+    item_descricao: Optional[str] = None
+    item_imagem: Optional[str] = None
+    item_medidas: Optional[str] = None
+    item_material: Optional[str] = None
     created_at: datetime
