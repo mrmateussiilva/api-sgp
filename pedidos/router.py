@@ -1833,14 +1833,31 @@ async def update_pedido_item(
                 m_id = int(new_item.machine_id)
                 
             if m_id and m_id > 0:
-                print_log = PrintLog(
-                    printer_id=m_id,
-                    pedido_id=pedido.id,
-                    item_id=item_id,
-                    status=PrintLogStatus.SUCCESS
+                # Verificar se já existe um log para este item
+                query = select(PrintLog).where(
+                    PrintLog.pedido_id == pedido.id,
+                    PrintLog.item_id == item_id
                 )
-                session.add(print_log)
-                logger.info(f"Log de produção registrado automaticamente para item {item_id} na máquina {m_id}")
+                result = await session.exec(query)
+                db_log = result.first()
+
+                if db_log:
+                    # Atualiza log existente
+                    db_log.printer_id = m_id
+                    db_log.status = PrintLogStatus.SUCCESS
+                    db_log.created_at = datetime.utcnow()
+                    session.add(db_log)
+                    logger.info(f"Log de produção atualizado automaticamente para item {item_id} na máquina {m_id}")
+                else:
+                    # Cria novo log
+                    print_log = PrintLog(
+                        printer_id=m_id,
+                        pedido_id=pedido.id,
+                        item_id=item_id,
+                        status=PrintLogStatus.SUCCESS
+                    )
+                    session.add(print_log)
+                    logger.info(f"Novo log de produção registrado automaticamente para item {item_id} na máquina {m_id}")
         except Exception as log_error:
             # Não falhar o update se o log der erro, mas avisar
             logger.warning(f"Erro ao criar log de produção automático: {log_error}")

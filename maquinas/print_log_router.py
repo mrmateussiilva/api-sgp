@@ -182,8 +182,8 @@ async def create_print_log(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Cria um novo log de impressão.
-    Usado internamente pelo sistema de impressão.
+    Cria ou atualiza um log de impressão.
+    Implementa lógica para evitar duplicidade: se um item já tiver log, atualiza para a nova máquina/status.
     """
     machine = await session.get(Machine, log_data.printer_id)
     if not machine:
@@ -199,7 +199,27 @@ async def create_print_log(
             detail="Pedido não encontrado"
         )
 
-    db_log = PrintLog(**log_data.model_dump())
+    # Lógica para evitar duplicidade de itens
+    db_log = None
+    if log_data.item_id:
+        query = select(PrintLog).where(
+            PrintLog.pedido_id == log_data.pedido_id,
+            PrintLog.item_id == log_data.item_id
+        )
+        result = await session.exec(query)
+        db_log = result.first()
+
+    if db_log:
+        # Atualiza log existente
+        for key, value in log_data.model_dump().items():
+            setattr(db_log, key, value)
+        # Resetar data de criação para aparecer no topo se for uma "reatribuição"
+        from datetime import datetime
+        db_log.created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        # Cria novo log
+        db_log = PrintLog(**log_data.model_dump())
+    
     session.add(db_log)
     await session.commit()
     await session.refresh(db_log)
