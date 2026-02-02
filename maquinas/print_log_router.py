@@ -15,7 +15,7 @@ router = APIRouter(prefix="/print-logs", tags=["Print Logs"])
 
 @router.get("/", response_model=list[PrintLogResponse])
 async def list_all_logs(
-    limit: int = Query(default=100, le=10000),
+    limit: int = Query(default=1000, le=50000),
     offset: int = Query(default=0, ge=0),
     status_filter: Optional[PrintLogStatus] = None,
     data_inicio: Optional[str] = Query(default=None, description="Data de início (YYYY-MM-DD)"),
@@ -99,7 +99,7 @@ async def list_all_logs(
 @router.get("/printers/{printer_id}", response_model=list[PrintLogResponse])
 async def get_printer_logs(
     printer_id: int,
-    limit: int = Query(default=100, le=10000),
+    limit: int = Query(default=1000, le=50000),
     offset: int = Query(default=0, ge=0),
     status_filter: Optional[PrintLogStatus] = None,
     data_inicio: Optional[str] = Query(default=None, description="Data de início (YYYY-MM-DD)"),
