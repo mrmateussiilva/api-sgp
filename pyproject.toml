@@ -27,6 +27,10 @@ dependencies = [
     "alembic>=1.14.0",
     "uvloop>=0.21.0; platform_system != 'Windows'",
     "watchfiles>=1.1.0; platform_system != 'Windows'",
+    "pandas>=2.2.0",
+    "plotly>=5.22.0",
+    "streamlit>=1.37.0",
+    "pytest-asyncio>=1.3.0",
 ]
 
 [project.optional-dependencies]

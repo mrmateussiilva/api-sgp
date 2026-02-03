@@ -107,6 +107,10 @@ def get_item_value(item: ItemPedido) -> float:
     quantity_candidates = [
         getattr(item, 'quantity', None),
         getattr(item, 'quantidade', None),
+        getattr(item, 'quantidade_paineis', None),
+        getattr(item, 'quantidade_totem', None),
+        getattr(item, 'quantidade_lona', None),
+        getattr(item, 'quantidade_adesivo', None),
     ]
     unit_price = getattr(item, 'unit_price', None) or getattr(item, 'valor_unitario', None)
     if unit_price:
@@ -126,9 +130,7 @@ def get_item_value(item: ItemPedido) -> float:
                 value = parse_currency(raw_value)
                 if value > quantity_value:
                     quantity_value = value
-        if quantity_value > 1:
-            return quantity_value * parse_currency(unit_price)
-        return parse_currency(unit_price)
+        return quantity_value * parse_currency(unit_price)
     
     # Fallback: tenta valor_unitario sozinho
     if hasattr(item, 'valor_unitario') and item.valor_unitario:

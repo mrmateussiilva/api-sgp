@@ -6,7 +6,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, UploadFile, File, Form, BackgroundTasks
 from sqlmodel import select, and_, or_
 from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlalchemy import text, func
+from sqlalchemy import text, func, case
 from sqlalchemy.exc import IntegrityError, OperationalError
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse
@@ -1346,20 +1346,267 @@ async def listar_pedidos(
 @router.get("/total")
 async def contar_total_pedidos(
     session: AsyncSession = Depends(get_session),
+    status: Optional[Status] = Query(default=None),
+    cliente: Optional[str] = Query(default=None),
+    data_inicio: Optional[str] = Query(default=None),
+    data_fim: Optional[str] = Query(default=None),
+    date_mode: str = Query("entrada", description="Modo de data: 'entrada', 'entrega' ou 'qualquer'"),
 ):
     """
-    Retorna o total de pedidos registrados no banco de dados.
+    Retorna o total de pedidos registrados no banco de dados com suporte a filtros.
     """
     try:
-        sql_query = text("SELECT COUNT(*) as total FROM pedidos")
-        result = await session.execute(sql_query)
+        filters = select(func.count(Pedido.id))
+        
+        if status:
+            filters = filters.where(Pedido.status == status)
+
+        if cliente:
+            import unicodedata
+            cliente_normalized = unicodedata.normalize('NFKD', cliente.strip().lower())
+            cliente_normalized = ''.join(c for c in cliente_normalized if not unicodedata.combining(c))
+            search = f"%{cliente_normalized}%"
+            
+            cliente_col_normalized = func.lower(Pedido.cliente)
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ç', 'c')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'á', 'a')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'à', 'a')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ã', 'a')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'â', 'a')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'é', 'e')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ê', 'e')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'í', 'i')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ó', 'o')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ô', 'o')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'õ', 'o')
+            cliente_col_normalized = func.replace(cliente_col_normalized, 'ú', 'u')
+            
+            filters = filters.where(cliente_col_normalized.like(search))
+
+        data_inicio = _validate_iso_date(data_inicio, "data_inicio")
+        data_fim = _validate_iso_date(data_fim, "data_fim")
+
+        if data_inicio or data_fim:
+            date_mode_normalized = (date_mode or "entrada").lower().strip()
+            
+            if date_mode_normalized == "entrada":
+                if data_inicio:
+                    filters = filters.where(func.date(Pedido.data_entrada) >= data_inicio)
+                if data_fim:
+                    filters = filters.where(func.date(Pedido.data_entrada) <= data_fim)
+            
+            elif date_mode_normalized == "qualquer":
+                if data_inicio and data_fim:
+                    filters = filters.where(
+                        or_(
+                            and_(
+                                func.date(Pedido.data_entrada) >= data_inicio,
+                                func.date(Pedido.data_entrada) <= data_fim
+                            ),
+                            and_(
+                                func.date(Pedido.data_entrega) >= data_inicio,
+                                func.date(Pedido.data_entrega) <= data_fim
+                            )
+                        )
+                    )
+                elif data_inicio:
+                    filters = filters.where(
+                        or_(func.date(Pedido.data_entrada) >= data_inicio, func.date(Pedido.data_entrega) >= data_inicio)
+                    )
+                elif data_fim:
+                    filters = filters.where(
+                        or_(func.date(Pedido.data_entrada) <= data_fim, func.date(Pedido.data_entrega) <= data_fim)
+                    )
+            
+            else:
+                if data_inicio or data_fim:
+                    filters = filters.where(Pedido.data_entrega.isnot(None))
+                if data_inicio:
+                    filters = filters.where(func.date(Pedido.data_entrega) >= data_inicio)
+                if data_fim:
+                    filters = filters.where(func.date(Pedido.data_entrega) <= data_fim)
+
+        result = await session.execute(filters)
         total = result.scalar() or 0
         
         return {"total": total}
         
     except Exception as e:
         logger.exception("Erro ao contar total de pedidos")
-        raise HTTPException(status_code=500, detail=f"Erro ao contar total de pedidos: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _get_shipping_methods_summary(session: AsyncSession):
+    """Auxiliar para obter distribuição de formas de envio."""
+    try:
+        query = select(Pedido.forma_envio, func.count(Pedido.id)).group_by(Pedido.forma_envio).order_by(func.count(Pedido.id).desc()).limit(5)
+        result = await session.execute(query)
+        rows = result.all()
+        
+        total_query = select(func.count(Pedido.id))
+        total_result = await session.execute(total_query)
+        total = total_result.scalar() or 1
+        
+        return [
+            {
+                "name": row[0] or "Não especificado",
+                "count": row[1],
+                "percentage": int((row[1] / total) * 100)
+            } for row in rows
+        ]
+    except Exception:
+        return []
+
+
+@router.get("/summary")
+async def obter_resumo_pedidos(
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Retorna um resumo estatístico dos pedidos para o dashboard.
+    """
+    try:
+        # 1. Contagem por status
+        # SELECT status, COUNT(*) FROM pedidos GROUP BY status
+        status_query = select(Pedido.status, func.count(Pedido.id)).group_by(Pedido.status)
+        result = await session.execute(status_query)
+        rows = result.all()
+        
+        # Mapear resultados para dicionário de contagem
+        counts = {s: 0 for s in Status}
+        total = 0
+        
+        for status_val, count in rows:
+            if status_val in counts:
+                counts[status_val] = count
+            total += count
+
+        # 2. Pedidos Atrasados
+        # Pedidos que não estão prontos, entregues ou cancelados e cuja data de entrega já passou
+        today = datetime.utcnow().date().isoformat()
+        atrasados_query = select(func.count(Pedido.id)).where(
+            and_(
+                Pedido.status != Status.PRONTO,
+                Pedido.status != Status.ENTREGUE,
+                Pedido.status != Status.CANCELADO,
+                Pedido.data_entrega.isnot(None),
+                func.date(Pedido.data_entrega) < today
+            )
+        )
+        atrasados_result = await session.execute(atrasados_query)
+        atrasados_count = atrasados_result.scalar() or 0
+
+        # 3. Pedidos Urgentes
+        urgentes_query = select(func.count(Pedido.id)).where(
+            and_(
+                Pedido.status != Status.PRONTO,
+                Pedido.status != Status.ENTREGUE,
+                Pedido.status != Status.CANCELADO,
+                Pedido.prioridade == "ALTA"
+            )
+        )
+        urgentes_result = await session.execute(urgentes_query)
+        urgentes_count = urgentes_result.scalar() or 0
+
+        # 4. Pedidos Criados Hoje
+        hoje_query = select(func.count(Pedido.id)).where(
+            or_(
+                func.date(Pedido.data_entrada) == today,
+                func.date(Pedido.data_criacao) == today
+            )
+        )
+        hoje_result = await session.execute(hoje_query)
+        hoje_count = hoje_result.scalar() or 0
+
+        # 5. Taxa de Eficiência (Pedidos concluídos no prazo / Total concluídos)
+        concluidos_count = counts.get(Status.PRONTO, 0) + counts.get(Status.ENTREGUE, 0)
+        eficiencia = 0
+        avg_production_time = 0
+        
+        if concluidos_count > 0:
+            # Pedidos concluídos no prazo
+            on_time_query = select(func.count(Pedido.id)).where(
+                and_(
+                    or_(Pedido.status == Status.PRONTO, Pedido.status == Status.ENTREGUE),
+                    Pedido.data_entrega.isnot(None),
+                    func.date(Pedido.ultima_atualizacao) <= func.date(Pedido.data_entrega)
+                )
+            )
+            on_time_result = await session.execute(on_time_query)
+            on_time_count = on_time_result.scalar() or 0
+            eficiencia = int((on_time_count / concluidos_count) * 100)
+
+            # Tempo médio de produção (em dias)
+            time_query = select(func.avg(
+                func.julianday(Pedido.ultima_atualizacao) - func.julianday(Pedido.data_entrada)
+            )).where(
+                and_(
+                    or_(Pedido.status == Status.PRONTO, Pedido.status == Status.ENTREGUE),
+                    Pedido.data_entrada.isnot(None)
+                )
+            )
+            time_result = await session.execute(time_query)
+            avg_production_time = round(time_result.scalar() or 0)
+
+        # 5b. Tempo médio de atraso (pedidos não concluídos e já passados do prazo)
+        delay_query = select(func.avg(
+            func.julianday('now') - func.julianday(Pedido.data_entrega)
+        )).where(
+            and_(
+                Pedido.status != Status.PRONTO,
+                Pedido.status != Status.ENTREGUE,
+                Pedido.status != Status.CANCELADO,
+                Pedido.data_entrega.isnot(None),
+                func.date(Pedido.data_entrega) < func.date('now')
+            )
+        )
+        delay_result = await session.execute(delay_query)
+        avg_delay_time = round(delay_result.scalar() or 0)
+
+        # 6. Eficiência por Etapa
+        # Contagem de pedidos que passaram por cada etapa (financeiro, conferencia, etc)
+        # em relação ao total de pedidos não cancelados
+        total_active = total - counts.get(Status.CANCELADO, 0)
+        total_active = max(total_active, 1)
+        
+        stages_query = select(
+            func.count(case((Pedido.financeiro == True, 1))),
+            func.count(case((Pedido.conferencia == True, 1))),
+            func.count(case((Pedido.sublimacao == True, 1))),
+            func.count(case((Pedido.costura == True, 1))),
+            func.count(case((Pedido.expedicao == True, 1))),
+        ).where(Pedido.status != Status.CANCELADO)
+        
+        stages_result = await session.execute(stages_query)
+        stages_counts = stages_result.one()
+        
+        production_efficiency = {
+            "financeiro": int((stages_counts[0] / total_active) * 100),
+            "conferencia": int((stages_counts[1] / total_active) * 100),
+            "sublimacao": int((stages_counts[2] / total_active) * 100),
+            "costura": int((stages_counts[3] / total_active) * 100),
+            "expedicao": int((stages_counts[4] / total_active) * 100),
+        }
+
+        return {
+            "total": total,
+            "pendentes": counts.get(Status.PENDENTE, 0),
+            "em_producao": counts.get(Status.EM_PRODUCAO, 0),
+            "concluidos": concluidos_count,
+            "atrasados": atrasados_count,
+            "urgentes": urgentes_count,
+            "hoje": hoje_count,
+            "efficiency_rate": eficiencia,
+            "avg_production_time": avg_production_time,
+            "avg_delay_time": avg_delay_time,
+            "production_efficiency": production_efficiency,
+            "shipping_methods": await _get_shipping_methods_summary(session),
+            "status_counts": {s.value: c for s, c in counts.items()}
+        }
+    except Exception as e:
+        logger.exception("Erro ao gerar resumo de pedidos")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.get("/{pedido_id}", response_model=PedidoResponse)

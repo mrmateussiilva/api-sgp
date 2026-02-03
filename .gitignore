@@ -40,20 +40,7 @@ backups/**
 # ESTRUTURA DE RELEASES COMPARTILHADA
 # ============================================
 # Diretório compartilhado (shared/) não deve ser versionado
-shared/db/**
-!shared/db/
-!shared/db/.gitkeep
-shared/media/**
-!shared/media/
-!shared/media/.gitkeep
-!shared/media/templates/
-!shared/media/templates/**/*.html
-# shared/logs/**
-# !shared/logs/
-# !shared/logs/.gitkeep
-# shared/backups/**
-# !shared/backups/
-# !shared/backups/.gitkeep
+shared/**
 # releases/**
 # !releases/
 # releases/current
