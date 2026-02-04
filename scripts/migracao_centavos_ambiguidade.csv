@@ -1,0 +1,5 @@
+pedido_id,valor_total_raw,valor_total_centavos,valor_total_reason,valor_frete_raw,valor_frete_centavos,valor_frete_reason,valor_itens_raw,valor_itens_centavos,valor_itens_reason
+__summary__,,,,,,,,,
+__summary__,ambiguous_rows,0,,,,,,,
+__summary__,invalid_rows,0,,,,,,,
+__summary__,reason:sep_decimal,1536,,,,,,,

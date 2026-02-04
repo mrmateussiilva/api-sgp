@@ -911,6 +911,7 @@ async def relatorio_semanal(
     start_date: str = Query(..., description="Data inicial (YYYY-MM-DD)"),
     end_date: str = Query(..., description="Data final (YYYY-MM-DD)"),
     date_mode: Optional[str] = Query("entrada", description="Modo de data: entrada, entrega ou qualquer"),
+    cliente: Optional[str] = Query(None, description="Filtro parcial por cliente"),
 ) -> List[PedidoResponse]:
     """Retorna todos os pedidos do intervalo informado."""
     start = _parse_query_date(start_date, "start_date")
@@ -923,6 +924,10 @@ async def relatorio_semanal(
         raise HTTPException(status_code=400, detail="date_mode invalido")
 
     query = select(Pedido)
+
+    if cliente:
+        query = query.where(func.lower(Pedido.cliente).like(f"%{cliente.lower().strip()}%"))
+
     start_value = start.strftime("%Y-%m-%d")
     end_value = end.strftime("%Y-%m-%d")
 
