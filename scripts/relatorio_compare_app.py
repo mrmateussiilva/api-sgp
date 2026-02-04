@@ -292,6 +292,21 @@ pedido_resumo = pedido_df.select(
     ]
 ).sort("pedido_id")
 
+totais_pedidos = pedido_resumo.select(
+    pl.sum("valor_total").alias("valor_total"),
+    pl.sum("valor_itens_frete").alias("valor_itens_frete"),
+    pl.sum("valor_calculado_api").alias("valor_calculado_api"),
+    pl.sum("diff_total_itens").alias("diff_total_itens"),
+    pl.sum("diff_total_api").alias("diff_total_api"),
+).with_columns(
+    pedido_id=pl.lit(None),
+    numero=pl.lit("TOTAL"),
+    cliente=pl.lit(None),
+    status=pl.lit(None),
+    data_entrada=pl.lit(None),
+    data_entrega=pl.lit(None),
+).select(pedido_resumo.columns)
+
 divergentes = pedido_resumo.filter(
     (pl.col("diff_total_itens").abs() > tolerancia)
     | (pl.col("diff_total_api").abs() > tolerancia)
@@ -299,7 +314,10 @@ divergentes = pedido_resumo.filter(
 
 st.metric("Pedidos", pedido_df.height)
 st.metric("Pedidos com divergencia", divergentes.height)
-st.dataframe(divergentes.to_pandas(), use_container_width=True)
+st.dataframe(
+    pl.concat([divergentes, totais_pedidos], how="vertical").to_pandas(),
+    use_container_width=True,
+)
 
 st.subheader("Agrupamentos")
 group_mode = st.selectbox(
@@ -351,9 +369,18 @@ else:
             .sort("total_itens", descending=True)
         )
 
-st.dataframe(grouped.to_pandas(), use_container_width=True)
-
 if not grouped.is_empty():
+    total_cols = [col for col in grouped.columns if col != grouped.columns[0]]
+    grouped_total = grouped.select([pl.sum(col).alias(col) for col in total_cols])
+
+    key_col = grouped.columns[0]
+    grouped_display = grouped.with_columns(pl.col(key_col).cast(pl.Utf8))
+    grouped_total = grouped_total.with_columns(
+        pl.lit("TOTAL").cast(pl.Utf8).alias(key_col)
+    ).select(grouped_display.columns)
+    grouped_display = pl.concat([grouped_display, grouped_total], how="vertical")
+    st.dataframe(grouped_display.to_pandas(), use_container_width=True)
+
     chart_df = grouped.to_pandas()
     if group_mode == "periodo":
         fig = px.bar(
@@ -380,23 +407,41 @@ if not grouped.is_empty():
     st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("Detalhes por item")
+item_detalhes = item_df.select(
+    [
+        "pedido_id",
+        "numero",
+        "cliente",
+        "status",
+        "data_entrada",
+        "data_entrega",
+        "tipo_producao",
+        "descricao",
+        "vendedor",
+        "designer",
+        "valor_item",
+        "frete_alocado",
+        "valor_item_com_frete",
+    ]
+)
+total_itens = item_detalhes.select(
+    pl.sum("valor_item").alias("valor_item"),
+    pl.sum("frete_alocado").alias("frete_alocado"),
+    pl.sum("valor_item_com_frete").alias("valor_item_com_frete"),
+).with_columns(
+    pedido_id=pl.lit(None),
+    numero=pl.lit("TOTAL"),
+    cliente=pl.lit(None),
+    status=pl.lit(None),
+    data_entrada=pl.lit(None),
+    data_entrega=pl.lit(None),
+    tipo_producao=pl.lit(None),
+    descricao=pl.lit(None),
+    vendedor=pl.lit(None),
+    designer=pl.lit(None),
+).select(item_detalhes.columns)
+
 st.dataframe(
-    item_df.select(
-        [
-            "pedido_id",
-            "numero",
-            "cliente",
-            "status",
-            "data_entrada",
-            "data_entrega",
-            "tipo_producao",
-            "descricao",
-            "vendedor",
-            "designer",
-            "valor_item",
-            "frete_alocado",
-            "valor_item_com_frete",
-        ]
-    ).to_pandas(),
+    pl.concat([item_detalhes, total_itens], how="vertical").to_pandas(),
     use_container_width=True,
 )
