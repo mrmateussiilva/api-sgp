@@ -17,6 +17,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///db/dev.db")
 DRY_RUN = os.getenv("DRY_RUN", "1") == "1"
 CSV_PATH = os.getenv("CSV_PATH", "scripts/migracao_centavos_ambiguidade.csv")
 CSV_INVALID_PATH = os.getenv("CSV_INVALID_PATH", "scripts/migracao_centavos_invalidos.csv")
+ONLY_INVALID = os.getenv("ONLY_INVALID", "0") == "1"
 
 
 def parse_money_decimal(value: Any) -> Optional[Decimal]:
@@ -103,8 +104,12 @@ def main() -> None:
             text("SELECT id, valor_total, valor_frete, valor_itens, items FROM pedidos")
         ).fetchall()
 
-        csv_file = open(CSV_PATH, "w", newline="", encoding="utf-8")
-        csv_writer = csv.writer(csv_file)
+        csv_file = None
+        csv_writer = None
+        if not ONLY_INVALID:
+            csv_file = open(CSV_PATH, "w", newline="", encoding="utf-8")
+            csv_writer = csv.writer(csv_file)
+
         csv_invalid_file = open(CSV_INVALID_PATH, "w", newline="", encoding="utf-8")
         csv_invalid_writer = csv.writer(csv_invalid_file)
         header = [
@@ -119,12 +124,17 @@ def main() -> None:
             "valor_itens_centavos",
             "valor_itens_reason",
         ]
-        csv_writer.writerow(
-            [
-                *header,
-            ]
-        )
+        if csv_writer:
+            csv_writer.writerow(
+                [
+                    *header,
+                ]
+            )
         csv_invalid_writer.writerow([*header])
+
+        reason_counts: dict[str, int] = {}
+        ambig_rows = 0
+        invalid_rows = 0
 
         for row in rows:
             pedido_id, vt, vf, vi, items_json = row
@@ -152,10 +162,15 @@ def main() -> None:
                 vi_reason,
             ]
             reasons = {vt_reason, frete_reason, vi_reason}
+            for reason in (vt_reason, frete_reason, vi_reason):
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
             if "invalid" in reasons:
                 csv_invalid_writer.writerow(row_data)
+                invalid_rows += 1
             elif reasons - {"sep_decimal", "empty"}:
-                csv_writer.writerow(row_data)
+                if csv_writer:
+                    csv_writer.writerow(row_data)
+                ambig_rows += 1
 
             if DRY_RUN:
                 print(
@@ -181,7 +196,20 @@ def main() -> None:
                 {"vt": vt_cent, "vf": frete_cent, "vi": vi_cent, "id": pedido_id},
             )
 
-        csv_file.close()
+        summary_rows = [
+            ["__summary__", "ambiguous_rows", ambig_rows, "", "", "", "", "", "", ""],
+            ["__summary__", "invalid_rows", invalid_rows, "", "", "", "", "", "", ""],
+        ]
+        for reason, count in sorted(reason_counts.items()):
+            summary_rows.append(["__summary__", f"reason:{reason}", count, "", "", "", "", "", "", ""])
+
+        if csv_writer:
+            csv_writer.writerow(["__summary__", "", "", "", "", "", "", "", "", ""])
+            csv_writer.writerows(summary_rows)
+            csv_file.close()
+
+        csv_invalid_writer.writerow(["__summary__", "", "", "", "", "", "", "", "", ""])
+        csv_invalid_writer.writerows(summary_rows)
         csv_invalid_file.close()
 
 
