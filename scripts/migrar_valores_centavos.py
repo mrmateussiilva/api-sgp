@@ -212,6 +212,12 @@ def main() -> None:
         csv_invalid_writer.writerows(summary_rows)
         csv_invalid_file.close()
 
+        print("Resumo da migracao:")
+        print(f"- linhas_ambiguas: {ambig_rows}")
+        print(f"- linhas_invalidas: {invalid_rows}")
+        for reason, count in sorted(reason_counts.items()):
+            print(f"- reason:{reason}: {count}")
+
 
 if __name__ == "__main__":
     main()
