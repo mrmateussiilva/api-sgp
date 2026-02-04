@@ -22,6 +22,7 @@ from .schema import (
     Acabamento,
     Status,
     PedidoImagem,
+    BatchStatusUpdate,
 )
 from .realtime import schedule_broadcast
 from datetime import datetime, timedelta
@@ -1024,58 +1025,38 @@ async def listar_pedidos(
             date_mode_normalized = (date_mode or "entrega").lower().strip()
             
             if date_mode_normalized == "entrada":
-                # Filtrar por data_entrada - usar DATE() para extrair apenas a parte da data
                 if data_inicio:
-                    # Usar func.date() para extrair apenas a data (ignora hora)
-                    filters = filters.where(func.date(Pedido.data_entrada) >= data_inicio)
-                    logger.info(f"[listar_pedidos] Filtro data_inicio aplicado: DATE(data_entrada) >= {data_inicio}")
+                    filters = filters.where(Pedido.data_entrada >= data_inicio)
                 if data_fim:
-                    # Para data_fim, usar <= para incluir todo o dia
-                    filters = filters.where(func.date(Pedido.data_entrada) <= data_fim)
-                    logger.info(f"[listar_pedidos] Filtro data_fim aplicado: DATE(data_entrada) <= {data_fim}")
+                    next_day = (datetime.strptime(data_fim, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+                    filters = filters.where(Pedido.data_entrada < next_day)
             
             elif date_mode_normalized == "qualquer":
-                # Filtrar por qualquer uma das duas datas (data_entrada OU data_entrega)
                 if data_inicio and data_fim:
-                    # (DATE(data_entrada) >= inicio AND DATE(data_entrada) <= fim) OR (DATE(data_entrega) >= inicio AND DATE(data_entrega) <= fim)
+                    next_day = (datetime.strptime(data_fim, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
                     filters = filters.where(
                         or_(
-                            and_(
-                                func.date(Pedido.data_entrada) >= data_inicio,
-                                func.date(Pedido.data_entrada) <= data_fim
-                            ),
-                            and_(
-                                func.date(Pedido.data_entrega) >= data_inicio,
-                                func.date(Pedido.data_entrega) <= data_fim
-                            )
+                            and_(Pedido.data_entrada >= data_inicio, Pedido.data_entrada < next_day),
+                            and_(Pedido.data_entrega >= data_inicio, Pedido.data_entrega < next_day)
                         )
                     )
-                    logger.info(f"[listar_pedidos] Filtro data aplicado (qualquer): date_mode=qualquer, intervalo {data_inicio} a {data_fim}")
                 elif data_inicio:
                     filters = filters.where(
-                        or_(func.date(Pedido.data_entrada) >= data_inicio, func.date(Pedido.data_entrega) >= data_inicio)
+                        or_(Pedido.data_entrada >= data_inicio, Pedido.data_entrega >= data_inicio)
                     )
-                    logger.info(f"[listar_pedidos] Filtro data aplicado (qualquer): date_mode=qualquer, desde {data_inicio}")
                 elif data_fim:
+                    next_day = (datetime.strptime(data_fim, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
                     filters = filters.where(
-                        or_(func.date(Pedido.data_entrada) <= data_fim, func.date(Pedido.data_entrega) <= data_fim)
+                        or_(Pedido.data_entrada < next_day, Pedido.data_entrega < next_day)
                     )
-                    logger.info(f"[listar_pedidos] Filtro data aplicado (qualquer): date_mode=qualquer, até {data_fim}")
             
             else:
-                # Padrão: filtrar por data_entrega (comportamento original)
-                if data_inicio or data_fim:
-                    # Quando há filtro de data, só considerar pedidos com data_entrega preenchida
-                    filters = filters.where(Pedido.data_entrega.isnot(None))
-                    logger.info(f"[listar_pedidos] Filtro data_entrega IS NOT NULL aplicado")
+                # Padrão: filtrar por data_entrega
                 if data_inicio:
-                    # Usar func.date() para extrair apenas a data (ignora hora)
-                    filters = filters.where(func.date(Pedido.data_entrega) >= data_inicio)
-                    logger.info(f"[listar_pedidos] Filtro data_inicio aplicado: DATE(data_entrega) >= {data_inicio}")
+                    filters = filters.where(Pedido.data_entrega >= data_inicio)
                 if data_fim:
-                    # Para data_fim, usar <= para incluir todo o dia
-                    filters = filters.where(func.date(Pedido.data_entrega) <= data_fim)
-                    logger.info(f"[listar_pedidos] Filtro data_fim aplicado: DATE(data_entrega) <= {data_fim}")
+                    next_day = (datetime.strptime(data_fim, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+                    filters = filters.where(Pedido.data_entrega < next_day)
         
         filters = filters.order_by(Pedido.data_criacao.desc()).offset(skip)
         if limit is not None:
@@ -1634,6 +1615,39 @@ async def obter_pedido(pedido_id: int, session: AsyncSession = Depends(get_sessi
     except Exception as e:
         logger.exception("Erro ao obter pedido %s", pedido_id)
         raise HTTPException(status_code=500, detail="Erro interno ao obter pedido")
+
+@router.post("/batch-status")
+async def batch_atualizar_status(
+    update: BatchStatusUpdate,
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Atualiza o status de múltiplos pedidos de uma vez.
+    """
+    try:
+        # Buscar os pedidos
+        stmt = select(Pedido).where(Pedido.id.in_(update.id_pedidos))
+        result = await session.exec(stmt)
+        pedidos = result.all()
+        
+        if not pedidos:
+            raise HTTPException(status_code=404, detail="Nenhum pedido encontrado")
+            
+        for pedido in pedidos:
+            pedido.status = update.status
+            pedido.ultima_atualizacao = datetime.utcnow()
+            
+            # Se status for ENTREGUE ou PRONTO, sincronizar flags se necessário
+            if update.status == Status.ENTREGUE:
+                pedido.pronto = True
+            
+        await session.commit()
+        return {"count": len(pedidos), "status": update.status}
+        
+    except Exception as e:
+        await session.rollback()
+        logger.exception("Erro ao atualizar status em lote")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/{pedido_id}", response_model=PedidoResponse)
 async def atualizar_pedido(

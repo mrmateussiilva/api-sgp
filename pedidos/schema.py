@@ -367,3 +367,8 @@ class PedidoResponse(PedidoBase):
     valor_total_calculado: Optional[str] = None  # Campo calculado: frete + itens (para validação)
     
     model_config = ConfigDict(extra="allow")  # Permite campos extras
+
+
+class BatchStatusUpdate(SQLModel):
+    id_pedidos: List[int]
+    status: Status
