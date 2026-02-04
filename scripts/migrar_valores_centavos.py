@@ -217,6 +217,9 @@ def main() -> None:
         print(f"- linhas_invalidas: {invalid_rows}")
         for reason, count in sorted(reason_counts.items()):
             print(f"- reason:{reason}: {count}")
+        if csv_writer:
+            print(f"- csv_ambiguidade: {CSV_PATH}")
+        print(f"- csv_invalidos: {CSV_INVALID_PATH}")
 
 
 if __name__ == "__main__":
