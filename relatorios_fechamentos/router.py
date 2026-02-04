@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -134,7 +134,9 @@ def _matches_status(pedido: Pedido, status: Optional[str]) -> bool:
         "em processamento": {Status.EM_PRODUCAO},
         "em producao": {Status.EM_PRODUCAO},
         "em_producao": {Status.EM_PRODUCAO},
-        "concluido": {Status.PRONTO, Status.ENTREGUE},
+        # No Fechamento, "concluido" agora inclui tudo o que está ativo (incluindo pendentes)
+        # para bater com a visão financeira de faturamento do mês.
+        "concluido": {Status.PENDENTE, Status.EM_PRODUCAO, Status.PRONTO, Status.ENTREGUE},
         "cancelado": {Status.CANCELADO},
     }
     if normalized not in status_map:
@@ -928,30 +930,31 @@ async def relatorio_semanal(
     if cliente:
         query = query.where(func.lower(Pedido.cliente).like(f"%{cliente.lower().strip()}%"))
 
-    start_value = start.strftime("%Y-%m-%d")
-    end_value = end.strftime("%Y-%m-%d")
+    # Usar strings ISO diretamente para comparação léxica (YYYY-MM-DD)
+    # No SQLite, >= '2026-01-01' e < '2026-02-01' funciona corretamente para timestamps
+    start_val = start_date
+    next_day_end = (datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
 
     if normalized_date_mode == "entrada":
         query = query.where(
-            func.date(Pedido.data_entrada) >= start_value,
-            func.date(Pedido.data_entrada) <= end_value,
+            Pedido.data_entrada >= start_val,
+            Pedido.data_entrada < next_day_end,
         )
     elif normalized_date_mode == "entrega":
         query = query.where(
-            Pedido.data_entrega.isnot(None),
-            func.date(Pedido.data_entrega) >= start_value,
-            func.date(Pedido.data_entrega) <= end_value,
+            Pedido.data_entrega >= start_val,
+            Pedido.data_entrega < next_day_end,
         )
     else:
         query = query.where(
             or_(
                 and_(
-                    func.date(Pedido.data_entrada) >= start_value,
-                    func.date(Pedido.data_entrada) <= end_value,
+                    Pedido.data_entrada >= start_val,
+                    Pedido.data_entrada < next_day_end,
                 ),
                 and_(
-                    func.date(Pedido.data_entrega) >= start_value,
-                    func.date(Pedido.data_entrega) <= end_value,
+                    Pedido.data_entrega >= start_val,
+                    Pedido.data_entrega < next_day_end,
                 ),
             )
         )

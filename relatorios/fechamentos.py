@@ -194,13 +194,18 @@ async def get_filtered_orders(
             "pendente": Status.PENDENTE,
             "em processamento": Status.EM_PRODUCAO,
             "em_producao": Status.EM_PRODUCAO,
-            "concluido": Status.PRONTO,
+            "concluido": [Status.PRONTO, Status.ENTREGUE],
             "pronto": Status.PRONTO,
+            "entregue": Status.ENTREGUE,
             "cancelado": Status.CANCELADO,
         }
         normalized_status = status.lower().strip()
         if normalized_status in status_map:
-            conditions.append(Pedido.status == status_map[normalized_status])
+            target_status = status_map[normalized_status]
+            if isinstance(target_status, list):
+                conditions.append(Pedido.status.in_(target_status))
+            else:
+                conditions.append(Pedido.status == target_status)
     
     # Filtro por cliente
     if cliente:
