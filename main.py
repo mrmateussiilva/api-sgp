@@ -139,6 +139,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 # Inclusão dos routers
 app.include_router(auth_router, prefix="/auth")
 app.include_router(pedidos_router, prefix=settings.API_V1_STR)
