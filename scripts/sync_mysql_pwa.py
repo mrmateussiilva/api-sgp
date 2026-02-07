@@ -36,6 +36,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlmodel import Session, select
+from sqlalchemy.engine import URL
 
 from config import settings
 from database.database import engine as local_engine
@@ -52,10 +53,15 @@ JPEG_QUALITY = 60
 def _build_mysql_url() -> str:
     if not all([settings.DB_USER, settings.DB_PASS, settings.DB_HOST, settings.DB_NAME]):
         raise ValueError("DB_USER/DB_PASS/DB_HOST/DB_NAME precisam estar configurados no .env")
-    return (
-        f"mysql+pymysql://{settings.DB_USER}:{settings.DB_PASS}"
-        f"@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}?charset=utf8mb4"
-    )
+    return URL.create(
+        drivername="mysql+pymysql",
+        username=settings.DB_USER,
+        password=settings.DB_PASS,
+        host=settings.DB_HOST,
+        port=settings.DB_PORT,
+        database=settings.DB_NAME,
+        query={"charset": "utf8mb4"},
+    ).render_as_string(hide_password=False)
 
 
 def _load_passwords_map(path: Optional[str]) -> Dict[str, str]:

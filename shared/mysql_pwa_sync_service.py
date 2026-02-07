@@ -21,6 +21,7 @@ from sqlalchemy import (
     delete,
 )
 from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.engine import URL
 from sqlmodel import Session, select
 
 from config import settings
@@ -41,10 +42,15 @@ _REMOTE_TABLES = None
 def _build_mysql_url() -> Optional[str]:
     if not all([settings.DB_USER, settings.DB_PASS, settings.DB_HOST, settings.DB_NAME]):
         return None
-    return (
-        f"mysql+pymysql://{settings.DB_USER}:{settings.DB_PASS}"
-        f"@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}?charset=utf8mb4"
-    )
+    return URL.create(
+        drivername="mysql+pymysql",
+        username=settings.DB_USER,
+        password=settings.DB_PASS,
+        host=settings.DB_HOST,
+        port=settings.DB_PORT,
+        database=settings.DB_NAME,
+        query={"charset": "utf8mb4"},
+    ).render_as_string(hide_password=False)
 
 
 def _get_remote_engine():
