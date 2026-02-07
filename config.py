@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = ""
     PROJECT_NAME: str = "API Sistema de Fichas"
     VERSION: str = "1.2.0"
+    PORT: Optional[int] = None
 
     # Configurações de CORS
     BACKEND_CORS_ORIGINS: List[str] = [
