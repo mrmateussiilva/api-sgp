@@ -57,6 +57,8 @@ from pathlib import Path
 from uuid import uuid4
 import mimetypes
 from shared.vps_sync_service import vps_sync_service
+from shared.mysql_pwa_sync_service import sync_pedido as mysql_sync_pedido
+from shared.mysql_pwa_sync_service import sync_deletion as mysql_sync_deletion
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored", auto_error=False)
 
@@ -900,6 +902,8 @@ async def criar_pedido(
             
             # Sincronizar com a VPS (Background)
             background_tasks.add_task(vps_sync_service.sync_pedido, response)
+            # Sincronizar com MySQL remoto (Background)
+            background_tasks.add_task(mysql_sync_pedido, db_pedido.id)
 
             return response
 
@@ -1807,6 +1811,8 @@ async def atualizar_pedido(
             
             # Sincronizar com a VPS (Background) após qualquer atualização bem-sucedida
             background_tasks.add_task(vps_sync_service.sync_pedido, response)
+            # Sincronizar com MySQL remoto (Background)
+            background_tasks.add_task(mysql_sync_pedido, db_pedido.id)
 
             return response
             
@@ -1889,6 +1895,8 @@ async def deletar_pedido(
 
         # Sincronizar deleção com a VPS
         background_tasks.add_task(vps_sync_service.sync_deletion, pedido_res)
+        # Sincronizar deleção no MySQL remoto
+        background_tasks.add_task(mysql_sync_deletion, pedido_id)
 
         return {"message": "Pedido deletado com sucesso"}
         
@@ -1938,6 +1946,7 @@ async def deletar_todos_pedidos(
         # Sincronizar deleção em massa (para cada pedido)
         for pedido_res in pedidos_para_sync:
             background_tasks.add_task(vps_sync_service.sync_deletion, pedido_res)
+            background_tasks.add_task(mysql_sync_deletion, pedido_res.id)
 
         return {"message": "Todos os pedidos foram deletados com sucesso"}
         

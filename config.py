@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     VPS_SYNC_URL: str = "https://api-sgp-mobile.finderbit.com.br/internal/sync/pedidos"
     VPS_SYNC_API_KEY: Optional[str] = None
 
+    # MySQL remoto (PWA)
+    DB_USER: Optional[str] = None
+    DB_PASS: Optional[str] = None
+    DB_HOST: Optional[str] = None
+    DB_PORT: int = 3306
+    DB_NAME: Optional[str] = None
+
     # Logging
     LOG_LEVEL: str = "INFO"
 
