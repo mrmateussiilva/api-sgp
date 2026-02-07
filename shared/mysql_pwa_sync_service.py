@@ -25,7 +25,7 @@ from sqlalchemy.engine import URL
 from sqlmodel import Session, select
 
 from config import settings
-from database.database import engine as local_engine
+from sqlalchemy import create_engine as create_sync_engine
 from pedidos.images import absolute_media_path
 from pedidos.schema import Pedido, PedidoImagem
 from auth.models import User
@@ -37,6 +37,7 @@ JPEG_QUALITY = 60
 
 _REMOTE_ENGINE = None
 _REMOTE_TABLES = None
+_LOCAL_SYNC_ENGINE = None
 
 
 def _build_mysql_url() -> Optional[str]:
@@ -62,6 +63,19 @@ def _get_remote_engine():
         return None
     _REMOTE_ENGINE = create_engine(mysql_url, pool_pre_ping=True)
     return _REMOTE_ENGINE
+
+
+def _get_local_sync_engine():
+    global _LOCAL_SYNC_ENGINE
+    if _LOCAL_SYNC_ENGINE is not None:
+        return _LOCAL_SYNC_ENGINE
+    db_url = settings.DATABASE_URL
+    if db_url.startswith("sqlite+aiosqlite:///"):
+        db_url = db_url.replace("sqlite+aiosqlite:///", "sqlite:///")
+    elif db_url.startswith("sqlite+aiosqlite://"):
+        db_url = db_url.replace("sqlite+aiosqlite://", "sqlite://")
+    _LOCAL_SYNC_ENGINE = create_sync_engine(db_url, pool_pre_ping=True)
+    return _LOCAL_SYNC_ENGINE
 
 
 def _get_tables():
@@ -168,7 +182,8 @@ def sync_pedido(pedido_id: int) -> None:
     if engine is None or tables is None:
         return
 
-    with Session(local_engine.sync_engine) as session:
+    local_engine = _get_local_sync_engine()
+    with Session(local_engine) as session:
         pedido = session.get(Pedido, pedido_id)
         if not pedido:
             return
@@ -251,7 +266,8 @@ def sync_user(user_id: int, *, force_plain_password: Optional[str] = None) -> No
     if engine is None or tables is None:
         return
 
-    with Session(local_engine.sync_engine) as session:
+    local_engine = _get_local_sync_engine()
+    with Session(local_engine) as session:
         user = session.get(User, user_id)
         if not user:
             return

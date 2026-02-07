@@ -39,7 +39,7 @@ from sqlmodel import Session, select
 from sqlalchemy.engine import URL
 
 from config import settings
-from database.database import engine as local_engine
+from sqlalchemy import create_engine as create_sync_engine
 from pedidos.images import absolute_media_path
 from pedidos.schema import Pedido, PedidoImagem
 from auth.models import User
@@ -62,6 +62,15 @@ def _build_mysql_url() -> str:
         database=settings.DB_NAME,
         query={"charset": "utf8mb4"},
     ).render_as_string(hide_password=False)
+
+
+def _build_local_sync_engine():
+    db_url = settings.DATABASE_URL
+    if db_url.startswith("sqlite+aiosqlite:///"):
+        db_url = db_url.replace("sqlite+aiosqlite:///", "sqlite:///")
+    elif db_url.startswith("sqlite+aiosqlite://"):
+        db_url = db_url.replace("sqlite+aiosqlite://", "sqlite://")
+    return create_sync_engine(db_url, pool_pre_ping=True)
 
 
 def _load_passwords_map(path: Optional[str]) -> Dict[str, str]:
@@ -175,7 +184,8 @@ def _upsert_rows(conn, table: Table, rows: Iterable[dict], pk_fields: Optional[L
 
 
 def _sync_users(conn, table: Table, passwords_map: Dict[str, str]) -> None:
-    with Session(local_engine.sync_engine) as session:
+    local_engine = _build_local_sync_engine()
+    with Session(local_engine) as session:
         users = session.exec(select(User)).all()
 
     rows = []
@@ -203,7 +213,8 @@ def _sync_users(conn, table: Table, passwords_map: Dict[str, str]) -> None:
 
 
 def _sync_pedidos(conn, table: Table) -> None:
-    with Session(local_engine.sync_engine) as session:
+    local_engine = _build_local_sync_engine()
+    with Session(local_engine) as session:
         pedidos = session.exec(select(Pedido)).all()
 
     rows = []
@@ -246,7 +257,8 @@ def _sync_pedidos(conn, table: Table) -> None:
 
 
 def _sync_imagens(conn, table: Table) -> None:
-    with Session(local_engine.sync_engine) as session:
+    local_engine = _build_local_sync_engine()
+    with Session(local_engine) as session:
         imagens = session.exec(select(PedidoImagem)).all()
 
     # Recriar imagens por pedido para evitar duplicatas
