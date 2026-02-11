@@ -5,8 +5,9 @@ import io
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Tuple, Any
 
+import orjson
 from PIL import Image
 from sqlalchemy import (
     Boolean,
@@ -188,6 +189,51 @@ def sync_pedido(pedido_id: int) -> None:
         if not pedido:
             return
 
+        # Buscar imagens do pedido antes de processar o JSON
+        imagens = session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido_id)).all()
+        
+        # Criar um dicionário de imagens por (item_index, item_identificador) para busca rápida
+        imagens_map: Dict[Tuple[int, Optional[str]], PedidoImagem] = {}
+        for img in imagens:
+            key = (img.item_index, img.item_identificador)
+            imagens_map[key] = img
+
+        # Processar items_json para incluir imagens como base64
+        items_json_original = pedido.items or "[]"
+        items_json_atualizado = items_json_original
+        
+        try:
+            items_data = orjson.loads(items_json_original) if isinstance(items_json_original, str) else items_json_original
+            
+            # Atualizar cada item com a imagem em base64 se existir
+            for index, item in enumerate(items_data):
+                # Tentar encontrar imagem por index e identificador
+                item_identifier = item.get('item_identificador') or item.get('identifier')
+                key = (index, item_identifier)
+                
+                # Se não encontrar pelo identificador, tentar apenas pelo index
+                if key not in imagens_map:
+                    key = (index, None)
+                
+                if key in imagens_map:
+                    image_row = imagens_map[key]
+                    try:
+                        abs_path = absolute_media_path(image_row.path)
+                        if abs_path.exists():
+                            b64 = _thumbnail_to_base64(str(abs_path))
+                            if b64:
+                                # Adicionar prefixo data URL
+                                item['imagem'] = f"data:image/jpeg;base64,{b64}"
+                                item['imagem_base64'] = b64
+                                LOGGER.debug("Imagem incluída no item %s do pedido %s", index, pedido_id)
+                    except Exception as e:
+                        LOGGER.warning("Erro ao processar imagem do item %s do pedido %s: %s", index, pedido_id, e)
+            
+            # Converter de volta para JSON string
+            items_json_atualizado = orjson.dumps(items_data).decode("utf-8")
+        except Exception as e:
+            LOGGER.warning("Erro ao processar items_json do pedido %s, usando original: %s", pedido_id, e)
+
         pedido_row = {
             "pedido_id": pedido.id,
             "numero": pedido.numero,
@@ -214,12 +260,10 @@ def sync_pedido(pedido_id: int) -> None:
             "pronto": bool(pedido.pronto),
             "sublimacao_maquina": pedido.sublimacao_maquina,
             "sublimacao_data_impressao": pedido.sublimacao_data_impressao,
-            "items_json": pedido.items,
+            "items_json": items_json_atualizado,  # Usar o JSON atualizado com imagens
             "data_criacao": pedido.data_criacao,
             "ultima_atualizacao": pedido.ultima_atualizacao,
         }
-
-        imagens = session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido_id)).all()
 
     with engine.begin() as conn:
         _upsert_row(conn, tables["pwa_pedidos"], pedido_row, "pedido_id")
