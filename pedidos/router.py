@@ -1573,6 +1573,58 @@ async def obter_resumo_pedidos(
             "expedicao": int((stages_counts[4] / total_active) * 100),
         }
 
+        # 7. Pedidos recentes (últimos 5 por data_criacao) e urgentes (5 ALTA não prontos por data_entrega)
+        async def _pedidos_to_response_dicts(pedidos_list: List[Pedido]) -> List[dict]:
+            if not pedidos_list:
+                return []
+            pedidos_items: dict[int, List[ItemPedido]] = {}
+            for p in pedidos_list:
+                if p.id is not None:
+                    pedidos_items[p.id] = json_string_to_items(p.items or "[]")
+            await populate_items_with_image_paths_batch(session, pedidos_list, pedidos_items)
+            out = []
+            for p in pedidos_list:
+                items = pedidos_items.get(p.id, []) if p.id is not None else []
+                try:
+                    d = pedido_to_response_dict(p, items)
+                    resp = PedidoResponse(**d)
+                    out.append(jsonable_encoder(resp))
+                except Exception as e:
+                    logger.warning("Erro ao serializar pedido %s no summary: %s", p.id, e)
+            return out
+
+        recent_stmt = (
+            select(Pedido)
+            .where(Pedido.status != Status.CANCELADO)
+            .order_by(Pedido.data_criacao.desc())
+            .limit(5)
+        )
+        recent_result = await session.exec(recent_stmt)
+        recent_pedidos = list(recent_result.all())
+        for p in recent_pedidos:
+            normalize_pedido_status(p)
+
+        urgent_stmt = (
+            select(Pedido)
+            .where(
+                and_(
+                    Pedido.prioridade == "ALTA",
+                    Pedido.status != Status.PRONTO,
+                    Pedido.status != Status.ENTREGUE,
+                    Pedido.status != Status.CANCELADO,
+                )
+            )
+            .order_by(Pedido.data_entrega.asc())
+            .limit(5)
+        )
+        urgent_result = await session.exec(urgent_stmt)
+        urgent_pedidos = list(urgent_result.all())
+        for p in urgent_pedidos:
+            normalize_pedido_status(p)
+
+        recent_orders = await _pedidos_to_response_dicts(recent_pedidos)
+        urgent_orders = await _pedidos_to_response_dicts(urgent_pedidos)
+
         return {
             "total": total,
             "pendentes": counts.get(Status.PENDENTE, 0),
@@ -1586,7 +1638,9 @@ async def obter_resumo_pedidos(
             "avg_delay_time": avg_delay_time,
             "production_efficiency": production_efficiency,
             "shipping_methods": await _get_shipping_methods_summary(session),
-            "status_counts": {s.value: c for s, c in counts.items()}
+            "status_counts": {s.value: c for s, c in counts.items()},
+            "recent_orders": recent_orders,
+            "urgent_orders": urgent_orders,
         }
     except Exception as e:
         logger.exception("Erro ao gerar resumo de pedidos")
