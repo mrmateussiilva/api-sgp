@@ -22,8 +22,35 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    connection = op.get_bind()
+    from sqlalchemy import inspect
+    inspector = inspect(connection)
+    existing = inspector.get_table_names()
+    # Banco vazio: criar todas as tabelas a partir dos modelos atuais
+    if "designer" not in existing and "user" not in existing:
+        from sqlmodel import SQLModel
+        from auth import models as _auth_models
+        from pedidos import schema as _pedidos_schema
+        from clientes import schema as _clientes_schema
+        from pagamentos import schema as _pagamentos_schema
+        from envios import schema as _envios_schema
+        from admin import schema as _admin_schema
+        from materiais import schema as _materiais_schema
+        from designers import schema as _designers_schema
+        from vendedores import schema as _vendedores_schema
+        from producoes import schema as _producoes_schema
+        from fichas import schema as _fichas_schema
+        from relatorios import schema as _relatorios_schema
+        from relatorios_fechamentos import schema as _relatorios_fechamentos_schema
+        from reposicoes import schema as _reposicoes_schema
+        from users import schema as _users_schema
+        from maquinas import schema as _maquinas_schema
+        from maquinas import print_log_schema as _print_log_schema
+        SQLModel.metadata.create_all(connection)
+        return
+
     # Using batch_alter_table for SQLite compatibility
-    
+
     # Designer
     with op.batch_alter_table('designer') as batch_op:
         batch_op.alter_column('observacao',
