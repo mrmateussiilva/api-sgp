@@ -17,23 +17,30 @@ import argparse
 import base64
 import io
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+# Usar o mesmo banco que a API: carregar .env e definir DATABASE_URL como no main.py
+_script_root = Path(__file__).resolve().parent.parent
+_env_path = _script_root / ".env"
+if _env_path.exists():
+    for line in _env_path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            k, v = k.strip(), v.strip().strip('"').strip("'")
+            if k and k not in os.environ:
+                os.environ[k] = v
+_api_root = Path(os.environ["API_ROOT"]) if os.environ.get("API_ROOT") else _script_root
+_shared_dir = _api_root / "shared"
+if "DATABASE_URL" not in os.environ:
+    os.environ["DATABASE_URL"] = f"sqlite:///{_shared_dir / 'db' / 'banco.db'}"
+
 from PIL import Image
-from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    Integer,
-    MetaData,
-    String,
-    Table,
-    Text,
-    create_engine,
-    delete,
-)
+from sqlalchemy import MetaData, Table, create_engine, delete
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlmodel import Session, select
 from sqlalchemy.engine import URL
@@ -43,6 +50,7 @@ from sqlalchemy import create_engine as create_sync_engine
 from pedidos.images import absolute_media_path
 from pedidos.schema import Pedido, PedidoImagem
 from auth.models import User
+from shared.mysql_pwa_sync_service import build_pwa_tables
 
 
 LOGGER = logging.getLogger("mysql_sync")
@@ -104,72 +112,6 @@ def _thumbnail_to_base64(image_path: str) -> Optional[str]:
     except Exception as exc:
         LOGGER.warning("Falha ao gerar miniatura (%s): %s", image_path, exc)
         return None
-
-
-def _define_tables(metadata: MetaData) -> dict[str, Table]:
-    pwa_pedidos = Table(
-        "pwa_pedidos",
-        metadata,
-        Column("pedido_id", Integer, primary_key=True),
-        Column("numero", String(50)),
-        Column("data_entrada", String(20)),
-        Column("data_entrega", String(20)),
-        Column("observacao", Text),
-        Column("prioridade", String(20)),
-        Column("status", String(50)),
-        Column("cliente", String(255)),
-        Column("telefone_cliente", String(50)),
-        Column("cidade_cliente", String(255)),
-        Column("valor_total", String(50)),
-        Column("valor_frete", String(50)),
-        Column("valor_itens", String(50)),
-        Column("tipo_pagamento", String(100)),
-        Column("obs_pagamento", Text),
-        Column("forma_envio", String(100)),
-        Column("forma_envio_id", Integer),
-        Column("financeiro", Boolean),
-        Column("conferencia", Boolean),
-        Column("sublimacao", Boolean),
-        Column("costura", Boolean),
-        Column("expedicao", Boolean),
-        Column("pronto", Boolean),
-        Column("sublimacao_maquina", String(100)),
-        Column("sublimacao_data_impressao", String(50)),
-        Column("items_json", Text),
-        Column("data_criacao", DateTime),
-        Column("ultima_atualizacao", DateTime),
-    )
-
-    pwa_pedido_imagens = Table(
-        "pwa_pedido_imagens",
-        metadata,
-        Column("id", Integer, primary_key=True, autoincrement=True),
-        Column("pedido_id", Integer, index=True),
-        Column("item_index", Integer),
-        Column("item_identificador", String(100)),
-        Column("mime_type", String(50)),
-        Column("filename", String(255)),
-        Column("image_base64", Text),
-        Column("criado_em", DateTime),
-    )
-
-    pwa_users = Table(
-        "pwa_users",
-        metadata,
-        Column("id", Integer, primary_key=True, autoincrement=True),
-        Column("username", String(150), unique=True, index=True),
-        Column("password", String(255)),
-        Column("is_admin", Boolean),
-        Column("is_active", Boolean),
-        Column("created_at", DateTime),
-        Column("updated_at", DateTime),
-    )
-
-    return {
-        "pwa_pedidos": pwa_pedidos,
-        "pwa_pedido_imagens": pwa_pedido_imagens,
-        "pwa_users": pwa_users,
-    }
 
 
 def _upsert_rows(conn, table: Table, rows: Iterable[dict], pk_fields: Optional[List[str]] = None) -> None:
@@ -309,17 +251,52 @@ def main() -> None:
 
     passwords_map = _load_passwords_map(args.passwords_file)
 
+    db_url = settings.DATABASE_URL
+    if db_url.startswith("sqlite:///"):
+        _local_db_path = db_url.replace("sqlite:///", "")
+    elif db_url.startswith("sqlite+aiosqlite:///"):
+        _local_db_path = db_url.replace("sqlite+aiosqlite:///", "")
+    else:
+        _local_db_path = db_url
+    LOGGER.info("Banco local (leitura): %s", _local_db_path)
+
     mysql_url = _build_mysql_url()
     remote_engine = create_engine(mysql_url, pool_pre_ping=True)
 
     metadata = MetaData()
-    tables = _define_tables(metadata)
+    tables = build_pwa_tables(metadata)
     metadata.create_all(remote_engine)
 
     with remote_engine.begin() as conn:
-        _sync_users(conn, tables["pwa_users"], passwords_map)
-        _sync_pedidos(conn, tables["pwa_pedidos"])
-        _sync_imagens(conn, tables["pwa_pedido_imagens"])
+        try:
+            _sync_users(conn, tables["pwa_users"], passwords_map)
+        except OperationalError as e:
+            if "no such table" in str(e).lower():
+                LOGGER.warning(
+                    "Tabela de usuários não existe no banco local (DATABASE_URL). "
+                    "Execute as migrações (alembic upgrade head) ou use um banco com schema aplicado. "
+                    "Pulando sync de usuários."
+                )
+            else:
+                raise
+        try:
+            _sync_pedidos(conn, tables["pwa_pedidos"])
+        except OperationalError as e:
+            if "no such table" in str(e).lower():
+                LOGGER.warning(
+                    "Tabela de pedidos não existe no banco local. Pulando sync de pedidos."
+                )
+            else:
+                raise
+        try:
+            _sync_imagens(conn, tables["pwa_pedido_imagens"])
+        except OperationalError as e:
+            if "no such table" in str(e).lower():
+                LOGGER.warning(
+                    "Tabela de imagens de pedidos não existe no banco local. Pulando sync de imagens."
+                )
+            else:
+                raise
 
     LOGGER.info("Carga inicial concluida.")
 

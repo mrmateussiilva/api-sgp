@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Tuple, Any
@@ -39,6 +40,7 @@ JPEG_QUALITY = 60
 _REMOTE_ENGINE = None
 _REMOTE_TABLES = None
 _LOCAL_SYNC_ENGINE = None
+_LOGGED_MYSQL_NOT_CONFIGURED = False
 
 
 def _build_mysql_url() -> Optional[str]:
@@ -62,8 +64,21 @@ def _get_remote_engine():
     mysql_url = _build_mysql_url()
     if not mysql_url:
         return None
-    _REMOTE_ENGINE = create_engine(mysql_url, pool_pre_ping=True)
+    _REMOTE_ENGINE = create_engine(
+        mysql_url,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": settings.MYSQL_SYNC_CONNECT_TIMEOUT},
+    )
     return _REMOTE_ENGINE
+
+
+def _log_mysql_not_configured_once() -> None:
+    global _LOGGED_MYSQL_NOT_CONFIGURED
+    if not _LOGGED_MYSQL_NOT_CONFIGURED:
+        LOGGER.warning(
+            "MySQL remoto não configurado (DB_USER/DB_PASS/DB_HOST/DB_NAME no .env); sync ignorado."
+        )
+        _LOGGED_MYSQL_NOT_CONFIGURED = True
 
 
 def _get_local_sync_engine():
@@ -79,12 +94,8 @@ def _get_local_sync_engine():
     return _LOCAL_SYNC_ENGINE
 
 
-def _get_tables():
-    global _REMOTE_TABLES
-    if _REMOTE_TABLES is not None:
-        return _REMOTE_TABLES
-
-    metadata = MetaData()
+def build_pwa_tables(metadata: MetaData) -> Dict[str, Table]:
+    """Constrói as definições das tabelas PWA no MySQL. Usado pelo serviço e pelo script de carga."""
     pwa_pedidos = Table(
         "pwa_pedidos",
         metadata,
@@ -143,15 +154,25 @@ def _get_tables():
         Column("updated_at", DateTime),
     )
 
-    engine = _get_remote_engine()
-    if engine is None:
-        return None
-    metadata.create_all(engine)
-    _REMOTE_TABLES = {
+    return {
         "pwa_pedidos": pwa_pedidos,
         "pwa_pedido_imagens": pwa_pedido_imagens,
         "pwa_users": pwa_users,
     }
+
+
+def _get_tables():
+    global _REMOTE_TABLES
+    if _REMOTE_TABLES is not None:
+        return _REMOTE_TABLES
+
+    engine = _get_remote_engine()
+    if engine is None:
+        return None
+
+    metadata = MetaData()
+    _REMOTE_TABLES = build_pwa_tables(metadata)
+    metadata.create_all(engine)
     return _REMOTE_TABLES
 
 
@@ -181,6 +202,7 @@ def sync_pedido(pedido_id: int) -> None:
     engine = _get_remote_engine()
     tables = _get_tables()
     if engine is None or tables is None:
+        _log_mysql_not_configured_once()
         return
 
     local_engine = _get_local_sync_engine()
@@ -265,49 +287,85 @@ def sync_pedido(pedido_id: int) -> None:
             "ultima_atualizacao": pedido.ultima_atualizacao,
         }
 
-    with engine.begin() as conn:
-        _upsert_row(conn, tables["pwa_pedidos"], pedido_row, "pedido_id")
+    retries = max(1, settings.MYSQL_SYNC_RETRIES)
+    for attempt in range(retries):
+        try:
+            with engine.begin() as conn:
+                _upsert_row(conn, tables["pwa_pedidos"], pedido_row, "pedido_id")
 
-        conn.execute(delete(tables["pwa_pedido_imagens"]).where(tables["pwa_pedido_imagens"].c.pedido_id == pedido_id))
-        for image_row in imagens:
-            try:
-                abs_path = absolute_media_path(image_row.path)
-            except Exception:
-                continue
-            if not abs_path.exists():
-                continue
+                conn.execute(delete(tables["pwa_pedido_imagens"]).where(tables["pwa_pedido_imagens"].c.pedido_id == pedido_id))
+                for image_row in imagens:
+                    try:
+                        abs_path = absolute_media_path(image_row.path)
+                    except Exception:
+                        continue
+                    if not abs_path.exists():
+                        continue
 
-            b64 = _thumbnail_to_base64(str(abs_path))
-            if not b64:
-                continue
+                    b64 = _thumbnail_to_base64(str(abs_path))
+                    if not b64:
+                        continue
 
-            img_row = {
-                "pedido_id": image_row.pedido_id,
-                "item_index": image_row.item_index,
-                "item_identificador": image_row.item_identificador,
-                "mime_type": "image/jpeg",
-                "filename": image_row.filename,
-                "image_base64": b64,
-                "criado_em": image_row.criado_em or datetime.utcnow(),
-            }
-            _upsert_row(conn, tables["pwa_pedido_imagens"], img_row, "id")
+                    img_row = {
+                        "pedido_id": image_row.pedido_id,
+                        "item_index": image_row.item_index,
+                        "item_identificador": image_row.item_identificador,
+                        "mime_type": "image/jpeg",
+                        "filename": image_row.filename,
+                        "image_base64": b64,
+                        "criado_em": image_row.criado_em or datetime.utcnow(),
+                    }
+                    _upsert_row(conn, tables["pwa_pedido_imagens"], img_row, "id")
+            LOGGER.info("Pedido %s sincronizado com MySQL remoto.", pedido_id)
+            return
+        except Exception as e:
+            if attempt == retries - 1:
+                LOGGER.error(
+                    "Falha ao sincronizar pedido %s com MySQL remoto após %s tentativa(s): %s",
+                    pedido_id,
+                    retries,
+                    e,
+                    exc_info=True,
+                )
+                raise
+            time.sleep(2**attempt)
 
 
 def sync_deletion(pedido_id: int) -> None:
     engine = _get_remote_engine()
     tables = _get_tables()
     if engine is None or tables is None:
+        _log_mysql_not_configured_once()
         return
 
-    with engine.begin() as conn:
-        conn.execute(delete(tables["pwa_pedidos"]).where(tables["pwa_pedidos"].c.pedido_id == pedido_id))
-        conn.execute(delete(tables["pwa_pedido_imagens"]).where(tables["pwa_pedido_imagens"].c.pedido_id == pedido_id))
+    retries = max(1, settings.MYSQL_SYNC_RETRIES)
+    for attempt in range(retries):
+        try:
+            with engine.begin() as conn:
+                conn.execute(delete(tables["pwa_pedidos"]).where(tables["pwa_pedidos"].c.pedido_id == pedido_id))
+                conn.execute(delete(tables["pwa_pedido_imagens"]).where(tables["pwa_pedido_imagens"].c.pedido_id == pedido_id))
+            LOGGER.info("Deleção do pedido %s replicada no MySQL remoto.", pedido_id)
+            return
+        except Exception as e:
+            if attempt == retries - 1:
+                LOGGER.error(
+                    "Falha ao replicar deleção do pedido %s no MySQL remoto após %s tentativa(s): %s",
+                    pedido_id,
+                    retries,
+                    e,
+                    exc_info=True,
+                )
+                raise
+            time.sleep(2**attempt)
 
 
 def sync_user(user_id: int, *, force_plain_password: Optional[str] = None) -> None:
+    """Sincroniza usuário para pwa_users. Por padrão envia password_hash (bcrypt).
+    Use force_plain_password apenas se o PWA esperar senha em texto (ex.: carga inicial via script)."""
     engine = _get_remote_engine()
     tables = _get_tables()
     if engine is None or tables is None:
+        _log_mysql_not_configured_once()
         return
 
     local_engine = _get_local_sync_engine()
@@ -326,15 +384,48 @@ def sync_user(user_id: int, *, force_plain_password: Optional[str] = None) -> No
         "updated_at": user.updated_at,
     }
 
-    with engine.begin() as conn:
-        _upsert_row(conn, tables["pwa_users"], row, "id")
+    retries = max(1, settings.MYSQL_SYNC_RETRIES)
+    for attempt in range(retries):
+        try:
+            with engine.begin() as conn:
+                _upsert_row(conn, tables["pwa_users"], row, "id")
+            LOGGER.info("Usuário %s sincronizado com MySQL remoto.", user.username)
+            return
+        except Exception as e:
+            if attempt == retries - 1:
+                LOGGER.error(
+                    "Falha ao sincronizar usuário %s com MySQL remoto após %s tentativa(s): %s",
+                    user.username,
+                    retries,
+                    e,
+                    exc_info=True,
+                )
+                raise
+            time.sleep(2**attempt)
 
 
 def sync_user_deletion(username: str) -> None:
     engine = _get_remote_engine()
     tables = _get_tables()
     if engine is None or tables is None:
+        _log_mysql_not_configured_once()
         return
 
-    with engine.begin() as conn:
-        conn.execute(delete(tables["pwa_users"]).where(tables["pwa_users"].c.username == username))
+    retries = max(1, settings.MYSQL_SYNC_RETRIES)
+    for attempt in range(retries):
+        try:
+            with engine.begin() as conn:
+                conn.execute(delete(tables["pwa_users"]).where(tables["pwa_users"].c.username == username))
+            LOGGER.info("Deleção do usuário %s replicada no MySQL remoto.", username)
+            return
+        except Exception as e:
+            if attempt == retries - 1:
+                LOGGER.error(
+                    "Falha ao replicar deleção do usuário %s no MySQL remoto após %s tentativa(s): %s",
+                    username,
+                    retries,
+                    e,
+                    exc_info=True,
+                )
+                raise
+            time.sleep(2**attempt)

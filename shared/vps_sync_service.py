@@ -39,21 +39,20 @@ class VpsSyncService:
             if not updated_at.endswith('Z'):
                 updated_at += 'Z'
 
-        # Preparar o payload conforme solicitado (VPS espera lista)
+        # Payload compatível com o modelo Pedido da API mobile (pwa_pedidos)
         pedido_data = {
             "pedido_id": pedido.id,
             "numero": pedido.numero,
-            "cliente_nome": pedido.cliente,
+            "cliente": pedido.cliente or "",
+            "data_entrada": getattr(pedido, "data_entrada", None) or "",
+            "data_entrega": getattr(pedido, "data_entrega", None) or "",
             "status": pedido.status.value if hasattr(pedido.status, 'value') else str(pedido.status),
             "valor_total": valor_f,
-            "updated_at": updated_at
+            "observacao": getattr(pedido, "observacao", None) or "",
         }
         payload = [pedido_data]
 
-        headers = {
-            "Content-Type": "application/json",
-            "x-api-key": settings.VPS_SYNC_API_KEY or ""  # Usando lowercase por precaução
-        }
+        headers = {"Content-Type": "application/json"}
 
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
@@ -107,23 +106,21 @@ class VpsSyncService:
             if not updated_at.endswith('Z'):
                 updated_at += 'Z'
 
-        # Para deleção, enviamos o objeto completo mas com o flag deleted=True
-        # Isso satisfaz a validação do PedidoBase na VPS caso ela seja rigorosa
+        # Para deleção, enviamos objeto compatível com o modelo Pedido da API mobile
+        # (a API mobile pode tratar deleção via outro mecanismo no futuro)
         pedido_data = {
             "pedido_id": pedido.id,
             "numero": pedido.numero,
-            "cliente_nome": pedido.cliente,
+            "cliente": pedido.cliente or "",
+            "data_entrada": getattr(pedido, "data_entrada", None) or "",
+            "data_entrega": getattr(pedido, "data_entrega", None) or "",
             "status": pedido.status.value if hasattr(pedido.status, 'value') else str(pedido.status),
             "valor_total": valor_f,
-            "updated_at": updated_at,
-            "deleted": True
+            "observacao": getattr(pedido, "observacao", None) or "",
         }
         payload = [pedido_data]
         
-        headers = {
-            "Content-Type": "application/json",
-            "x-api-key": settings.VPS_SYNC_API_KEY or ""
-        }
+        headers = {"Content-Type": "application/json"}
 
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:

@@ -1677,6 +1677,7 @@ async def obter_pedido(pedido_id: int, session: AsyncSession = Depends(get_sessi
 @router.post("/batch-status")
 async def batch_atualizar_status(
     update: BatchStatusUpdate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session)
 ):
     """
@@ -1700,6 +1701,8 @@ async def batch_atualizar_status(
                 pedido.pronto = True
             
         await session.commit()
+        for pedido in pedidos:
+            background_tasks.add_task(mysql_sync_pedido, pedido.id)
         return {"count": len(pedidos), "status": update.status}
         
     except Exception as e:

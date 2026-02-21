@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     DB_HOST: Optional[str] = None
     DB_PORT: int = 3306
     DB_NAME: Optional[str] = None
+    MYSQL_SYNC_CONNECT_TIMEOUT: int = 15
+    MYSQL_SYNC_RETRIES: int = 3
 
     # Logging
     LOG_LEVEL: str = "INFO"
