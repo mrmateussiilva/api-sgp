@@ -83,6 +83,7 @@ from middleware.metrics import MetricsMiddleware
 from auth.router import router as auth_router
 from pedidos.router import router as pedidos_router
 from pedidos.realtime import orders_notifier
+from chat.realtime import chat_notifier
 from clientes.router import router as clientes_router
 from pagamentos.router import router as pagamentos_router
 from envios.router import router as envios_router
@@ -291,6 +292,76 @@ async def orders_websocket(websocket: WebSocket):
         if __debug__:
             print(f"[WebSocket] Erro na conexão do usuário {user_id}: {e}")
         await orders_notifier.disconnect(websocket)
+
+
+@app.websocket("/ws/chat")
+async def chat_websocket(websocket: WebSocket):
+    """
+    Canal WebSocket de chat em tempo real.
+    Protegido por token JWT (mesmo padrão de /ws/orders).
+    Broadcast de mensagens para todos os clientes conectados.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    await websocket.accept()
+
+    # Validar token
+    token = websocket.query_params.get("token")
+    if not token:
+        token = extract_bearer_token(websocket.headers.get("Authorization"))
+
+    user = await get_user_from_token(token)
+    if not user:
+        await websocket.close(code=1008, reason="Token inválido ou ausente")
+        return
+
+    user_id = user.id
+    username = user.username
+
+    # Registrar conexão (envia users_list + broadcast user_joined)
+    await chat_notifier.connect(websocket, user_id, username)
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+
+            # Ping/pong
+            if data == '{"type":"ping"}' or data == "ping":
+                try:
+                    await websocket.send_text('{"type":"pong"}')
+                except Exception:
+                    break
+                continue
+
+            # Ignorar mensagem de autenticação (já autenticado)
+            try:
+                message = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+
+            if message.get("type") == "authenticate":
+                continue
+
+            # Processar mensagem de chat
+            if message.get("type") == "chat_message" and message.get("content"):
+                chat_msg = {
+                    "type": "chat_message",
+                    "id": message.get("id", str(user_id) + "_" + datetime.now(timezone.utc).isoformat()),
+                    "content": message["content"][:500],  # Limitar tamanho
+                    "userId": user_id,
+                    "username": username,
+                    "timestamp": message.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                }
+                # Enviar para todos EXCETO o remetente (frontend já adiciona localmente)
+                await chat_notifier.broadcast_except(chat_msg, exclude_websocket=websocket)
+
+    except WebSocketDisconnect:
+        await chat_notifier.disconnect(websocket)
+    except Exception as e:
+        if __debug__:
+            print(f"[Chat] Erro na conexão do usuário {user_id}: {e}")
+        await chat_notifier.disconnect(websocket)
 
 
 # Permite executar o servidor diretamente (útil para executável)
