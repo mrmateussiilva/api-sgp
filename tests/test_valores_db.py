@@ -9,6 +9,8 @@ from sqlalchemy.engine import make_url
 from config import settings
 from relatorios.fechamentos import get_item_value, parse_currency
 
+pytestmark = pytest.mark.integration_db
+
 
 def _resolve_sqlite_path(url) -> Path | None:
     db_path = Path(url.database or "")

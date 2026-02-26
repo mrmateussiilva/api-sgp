@@ -32,7 +32,7 @@ async def test_ultimo_id_muda_apos_criar_pedido(client: AsyncClient, clean_db):
     initial_id = response1.json()["ultimo_id"]
     
     # Criar um pedido
-    await client.post("/pedidos", json={
+    await client.post("/pedidos/", json={
         "cliente": "Cliente Teste",
         "data_entrada": "2024-01-15",
         "items": []
@@ -69,7 +69,7 @@ async def test_ultimo_id_incrementa_sequencialmente(client: AsyncClient, clean_d
     
     # Criar 3 pedidos
     for i in range(3):
-        await client.post("/pedidos", json={
+        await client.post("/pedidos/", json={
             "cliente": f"Cliente {i}",
             "data_entrada": "2024-01-15",
             "items": []

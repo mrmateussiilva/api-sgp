@@ -41,6 +41,11 @@ _REMOTE_TABLES = None
 _LOCAL_SYNC_ENGINE = None
 
 
+def _should_skip_sync() -> bool:
+    # Evita efeitos colaterais durante testes automatizados.
+    return settings.ENVIRONMENT == "test"
+
+
 def _build_mysql_url() -> Optional[str]:
     if not all([settings.DB_USER, settings.DB_PASS, settings.DB_HOST, settings.DB_NAME]):
         return None
@@ -178,6 +183,8 @@ def _upsert_row(conn, table: Table, row: dict, pk_field: str) -> None:
 
 
 def sync_pedido(pedido_id: int) -> None:
+    if _should_skip_sync():
+        return
     engine = _get_remote_engine()
     tables = _get_tables()
     if engine is None or tables is None:
@@ -294,6 +301,8 @@ def sync_pedido(pedido_id: int) -> None:
 
 
 def sync_deletion(pedido_id: int) -> None:
+    if _should_skip_sync():
+        return
     engine = _get_remote_engine()
     tables = _get_tables()
     if engine is None or tables is None:
@@ -305,6 +314,8 @@ def sync_deletion(pedido_id: int) -> None:
 
 
 def sync_user(user_id: int, *, force_plain_password: Optional[str] = None) -> None:
+    if _should_skip_sync():
+        return
     engine = _get_remote_engine()
     tables = _get_tables()
     if engine is None or tables is None:
@@ -331,6 +342,8 @@ def sync_user(user_id: int, *, force_plain_password: Optional[str] = None) -> No
 
 
 def sync_user_deletion(username: str) -> None:
+    if _should_skip_sync():
+        return
     engine = _get_remote_engine()
     tables = _get_tables()
     if engine is None or tables is None:

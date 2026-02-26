@@ -13,7 +13,7 @@ async def test_criar_pedido_sem_cliente_retorna_erro(client: AsyncClient, clean_
         "items": []
     }
     
-    response = await client.post("/pedidos", json=pedido_data)
+    response = await client.post("/pedidos/", json=pedido_data)
     # O endpoint pode aceitar cliente vazio como string vazia, mas vamos verificar
     # Se retornar 400, está correto. Se aceitar, o cliente deve ser string vazia
     assert response.status_code in [200, 400]
@@ -28,7 +28,7 @@ async def test_criar_pedido_com_data_invalida(client: AsyncClient, clean_db):
         "items": []
     }
     
-    response = await client.post("/pedidos", json=pedido_data)
+    response = await client.post("/pedidos/", json=pedido_data)
     # O endpoint pode aceitar e converter ou retornar erro
     # Vamos verificar que não quebra
     assert response.status_code in [200, 400, 422]
@@ -76,7 +76,7 @@ async def test_pedido_com_items_vazios(client: AsyncClient, clean_db):
         "items": []
     }
     
-    response = await client.post("/pedidos", json=pedido_data)
+    response = await client.post("/pedidos/", json=pedido_data)
     assert response.status_code == 200
     data = response.json()
     assert len(data["items"]) == 0
@@ -91,7 +91,7 @@ async def test_pedido_com_valores_padrao(client: AsyncClient, clean_db):
         "items": []
     }
     
-    response = await client.post("/pedidos", json=pedido_data)
+    response = await client.post("/pedidos/", json=pedido_data)
     assert response.status_code == 200
     data = response.json()
     
