@@ -5,6 +5,7 @@ Fornece fixtures para banco de dados em memória e cliente HTTP.
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.pool import StaticPool
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import SQLModel
 from httpx import AsyncClient, ASGITransport
@@ -30,6 +31,7 @@ async def test_engine():
     engine = create_async_engine(
         TEST_DATABASE_URL,
         connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
         echo=False,
     )
     

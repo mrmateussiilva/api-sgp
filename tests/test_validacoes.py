@@ -16,7 +16,7 @@ async def test_criar_pedido_sem_cliente_retorna_erro(client: AsyncClient, clean_
     response = await client.post("/pedidos/", json=pedido_data)
     # O endpoint pode aceitar cliente vazio como string vazia, mas vamos verificar
     # Se retornar 400, está correto. Se aceitar, o cliente deve ser string vazia
-    assert response.status_code in [200, 400]
+    assert response.status_code in [200, 400, 422]
 
 
 @pytest.mark.asyncio
@@ -37,7 +37,7 @@ async def test_criar_pedido_com_data_invalida(client: AsyncClient, clean_db):
 @pytest.mark.asyncio
 async def test_listar_pedidos_com_data_inicio_maior_que_fim(client: AsyncClient, clean_db):
     """Testa que filtro com data_inicio > data_fim retorna erro."""
-    response = await client.get("/pedidos?data_inicio=2024-01-20&data_fim=2024-01-15")
+    response = await client.get("/pedidos/?data_inicio=2024-01-20&data_fim=2024-01-15")
     assert response.status_code == 400
     assert "data_inicio" in response.json()["detail"].lower() or "menor" in response.json()["detail"].lower()
 

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from datetime import datetime
-from pedidos.router import ULTIMO_PEDIDO_ID
+import pedidos.router as pedidos_router
 
 router = APIRouter(prefix="/notificacoes", tags=["Notificações"])
 
@@ -12,7 +12,6 @@ async def ultimas_notificacoes():
     Usado para long polling de notificações de novos pedidos.
     """
     return {
-        "ultimo_id": ULTIMO_PEDIDO_ID,
+        "ultimo_id": pedidos_router.ULTIMO_PEDIDO_ID,
         "timestamp": datetime.now().isoformat()
     }
-

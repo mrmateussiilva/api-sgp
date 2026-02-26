@@ -1,28 +1,27 @@
 from fastapi.testclient import TestClient
-from clientes.schema import Cliente
-import pytest
 from main import app
 
-client = TestClient(app)
-
-
 def test_clientes():
-    response = client.get("/clientes")
+    with TestClient(app) as client:
+        response = client.get("/clientes/")
     assert response.status_code == 200
 
 
 def test_pedidos():
-    response = client.get("/pedidos")
+    with TestClient(app) as client:
+        response = client.get("/pedidos/")
     assert response.status_code == 200
 
 
 def test_envios():
-    response = client.get("/tipos-envios")
+    with TestClient(app) as client:
+        response = client.get("/tipos-envios/")
     assert response.status_code == 200
 
 
 def test_pagamentos():
-    response = client.get("/tipos-pagamentos")
+    with TestClient(app) as client:
+        response = client.get("/tipos-pagamentos/")
     assert response.status_code == 200
 
 
