@@ -1,0 +1,52 @@
+name: Testes de Integracao (DB)
+
+on:
+  workflow_dispatch:
+    inputs:
+      database_url:
+        description: "DATABASE_URL para os testes integration_db (ex.: sqlite:///db/banco.db)"
+        required: false
+        type: string
+
+concurrency:
+  group: integration-db-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration-db:
+    name: Integration DB (manual)
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: ci-test-secret
+      DATABASE_URL: ${{ inputs.database_url != '' && inputs.database_url || secrets.INTEGRATION_DATABASE_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validar DATABASE_URL
+        run: |
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "DATABASE_URL não informado."
+            echo "Use o input 'database_url' ao disparar o workflow"
+            echo "ou configure o secret INTEGRATION_DATABASE_URL."
+            exit 1
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Instalar dependencias
+        run: uv sync --frozen
+
+      - name: Rodar testes integration_db
+        run: uv run pytest -q -m "integration_db"
+
