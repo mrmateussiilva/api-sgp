@@ -57,11 +57,13 @@ for dir_name, dir_path in shared_dirs.items():
     dir_path.mkdir(parents=True, exist_ok=True)
 
 # Configurar variáveis de ambiente para usar diretórios compartilhados
-# Isso sobrescreve qualquer configuração anterior
 if "API_ROOT" not in os.environ:
     os.environ["API_ROOT"] = str(API_ROOT)
 if "DATABASE_URL" not in os.environ:
-    os.environ["DATABASE_URL"] = f"sqlite:///{SHARED_DIR / 'db' / 'banco.db'}"
+    raise RuntimeError(
+        "DATABASE_URL não configurado. Defina no arquivo .env (ex.: "
+        f"DATABASE_URL=sqlite:///{SHARED_DIR / 'db' / 'banco.db'})."
+    )
 if "MEDIA_ROOT" not in os.environ:
     os.environ["MEDIA_ROOT"] = str(SHARED_DIR / "media")
 if "LOG_DIR" not in os.environ:
