@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Literal
 
 from sqlmodel import Field, SQLModel
 
@@ -28,3 +28,19 @@ class MaterialUpdate(SQLModel):
     ativo: Optional[bool] = None
     observacao: Optional[str] = None
 
+
+class MaterialUsoItem(SQLModel):
+    material_id: Optional[int] = None
+    nome_material: str
+    cadastrado: bool = True
+    ativo: Optional[bool] = None
+    quantidade_usos: int = 0
+    percentual_uso: float = 0.0
+
+
+class MaterialUsoEstatisticasResponse(SQLModel):
+    ordem: Literal["mais", "menos"] = "mais"
+    total_pedidos_analisados: int = 0
+    total_itens_com_material: int = 0
+    total_materiais_distintos_com_uso: int = 0
+    materiais: list[MaterialUsoItem] = []

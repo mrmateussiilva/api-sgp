@@ -1,9 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from collections import Counter
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from base import get_session
-from .schema import Material, MaterialCreate, MaterialUpdate
+from pedidos.schema import Pedido, Status
+from pedidos.service import json_string_to_items
+from .schema import (
+    Material,
+    MaterialCreate,
+    MaterialUpdate,
+    MaterialUsoEstatisticasResponse,
+    MaterialUsoItem,
+)
 
 router = APIRouter(prefix="/materiais", tags=["Materiais"])
 
@@ -12,6 +23,105 @@ router = APIRouter(prefix="/materiais", tags=["Materiais"])
 async def list_materiais(session: AsyncSession = Depends(get_session)):
     result = await session.exec(select(Material))
     return result.all()
+
+
+def _normalize_material_name(nome: str) -> str:
+    return " ".join(nome.strip().casefold().split())
+
+
+@router.get("/estatisticas/uso", response_model=MaterialUsoEstatisticasResponse)
+async def get_estatisticas_uso_materiais(
+    limit: int = Query(default=10, ge=1, le=200),
+    ordem: Literal["mais", "menos"] = Query(default="mais"),
+    incluir_sem_uso: bool = Query(default=False),
+    somente_ativos: bool = Query(default=True),
+    incluir_cancelados: bool = Query(default=False),
+    session: AsyncSession = Depends(get_session),
+):
+    materiais_query = select(Material)
+    if somente_ativos:
+        materiais_query = materiais_query.where(Material.ativo == True)  # noqa: E712
+    materiais_result = await session.exec(materiais_query)
+    materiais = materiais_result.all()
+
+    catalogo_por_nome: dict[str, Material] = {}
+    for material in materiais:
+        catalogo_por_nome[_normalize_material_name(material.nome)] = material
+
+    pedidos_query = select(Pedido)
+    if not incluir_cancelados:
+        pedidos_query = pedidos_query.where(Pedido.status != Status.CANCELADO)
+    pedidos_result = await session.exec(pedidos_query)
+    pedidos = pedidos_result.all()
+
+    usos_por_nome: Counter[str] = Counter()
+    nomes_exibicao: dict[str, str] = {}
+    total_itens_com_material = 0
+
+    for pedido in pedidos:
+        for item in json_string_to_items(pedido.items):
+            if not item.tecido:
+                continue
+
+            nome = item.tecido.strip()
+            if not nome:
+                continue
+
+            nome_normalizado = _normalize_material_name(nome)
+            if not nome_normalizado:
+                continue
+
+            usos_por_nome[nome_normalizado] += 1
+            total_itens_com_material += 1
+
+            if nome_normalizado not in nomes_exibicao:
+                nomes_exibicao[nome_normalizado] = nome
+
+    if incluir_sem_uso:
+        for nome_normalizado in catalogo_por_nome:
+            usos_por_nome.setdefault(nome_normalizado, 0)
+
+    total_materiais_distintos_com_uso = sum(
+        1 for usos in usos_por_nome.values() if usos > 0
+    )
+    divisor_percentual = total_itens_com_material or 1
+
+    materiais_uso: list[MaterialUsoItem] = []
+    for nome_normalizado, quantidade_usos in usos_por_nome.items():
+        if quantidade_usos == 0 and not incluir_sem_uso:
+            continue
+
+        material_cadastrado = catalogo_por_nome.get(nome_normalizado)
+        nome_exibicao = (
+            material_cadastrado.nome
+            if material_cadastrado
+            else nomes_exibicao.get(nome_normalizado, nome_normalizado)
+        )
+
+        percentual = round((quantidade_usos / divisor_percentual) * 100, 2)
+        materiais_uso.append(
+            MaterialUsoItem(
+                material_id=material_cadastrado.id if material_cadastrado else None,
+                nome_material=nome_exibicao,
+                cadastrado=material_cadastrado is not None,
+                ativo=material_cadastrado.ativo if material_cadastrado else None,
+                quantidade_usos=quantidade_usos,
+                percentual_uso=percentual,
+            )
+        )
+
+    if ordem == "mais":
+        materiais_uso.sort(key=lambda item: (-item.quantidade_usos, item.nome_material.casefold()))
+    else:
+        materiais_uso.sort(key=lambda item: (item.quantidade_usos, item.nome_material.casefold()))
+
+    return MaterialUsoEstatisticasResponse(
+        ordem=ordem,
+        total_pedidos_analisados=len(pedidos),
+        total_itens_com_material=total_itens_com_material,
+        total_materiais_distintos_com_uso=total_materiais_distintos_com_uso,
+        materiais=materiais_uso[:limit],
+    )
 
 
 @router.get("/{material_id}", response_model=Material)

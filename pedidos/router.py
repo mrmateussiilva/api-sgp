@@ -59,6 +59,12 @@ import mimetypes
 from shared.vps_sync_service import vps_sync_service
 from sync.schema import SyncEntity, SyncEventType
 from sync.service import enqueue_sync_event
+from materiais.stock_service import (
+    apply_material_stock_delta,
+    build_material_stock_delta,
+    is_stock_eligible_status,
+    summarize_material_consumption,
+)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored", auto_error=False)
 
@@ -819,6 +825,10 @@ async def criar_pedido(
 
             if not pedido_data.get("numero"):
                 pedido_data["numero"] = await get_next_order_number(session)
+
+            if is_stock_eligible_status(pedido_data.get("status")):
+                consumo_novo = summarize_material_consumption(items_payload)
+                await apply_material_stock_delta(session, consumo_novo)
 
             items_json = items_to_json_string(items_payload)
 
@@ -1810,6 +1820,30 @@ async def atualizar_pedido(
                 estado_final = estado_update if estado_update else estado_atual
                 local_update_data['cidade_cliente'] = encode_city_state(nova_cidade, estado_final)
 
+            items_anteriores = json_string_to_items(db_pedido.items or "[]")
+            status_anterior_aplica_estoque = is_stock_eligible_status(db_pedido.status)
+            status_novo_aplica_estoque = is_stock_eligible_status(
+                local_update_data.get("status", db_pedido.status)
+            )
+
+            if items_payload_for_images is not None:
+                items_novos_para_estoque: list[Any] = items_payload_for_images
+            else:
+                items_novos_para_estoque = items_anteriores
+
+            consumo_anterior = (
+                summarize_material_consumption(items_anteriores)
+                if status_anterior_aplica_estoque
+                else {}
+            )
+            consumo_novo = (
+                summarize_material_consumption(items_novos_para_estoque)
+                if status_novo_aplica_estoque
+                else {}
+            )
+            delta_estoque = build_material_stock_delta(consumo_anterior, consumo_novo)
+            await apply_material_stock_delta(session, delta_estoque)
+
             # Atualizar timestamp
             local_update_data['ultima_atualizacao'] = datetime.utcnow()
             
@@ -1965,6 +1999,11 @@ async def deletar_pedido(
         await populate_items_with_image_paths(session, pedido_id, items)
         pedido_res = PedidoResponse(**pedido_to_response_dict(db_pedido, items))
 
+        if is_stock_eligible_status(db_pedido.status):
+            consumo_atual = summarize_material_consumption(items)
+            delta_retorno = build_material_stock_delta(consumo_atual, {})
+            await apply_material_stock_delta(session, delta_retorno)
+
         images_result = await session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido_id))
         for image in images_result.all():
             await delete_media_file(image.path)
@@ -2007,13 +2046,22 @@ async def deletar_todos_pedidos(
         # Buscar todos os pedidos para deletar suas imagens
         result = await session.exec(select(Pedido))
         all_pedidos = result.all()
-        
+
         # Preparar dados para o sync antes de deletar
         pedidos_para_sync = []
+        consumo_total_ativo: dict[str, float] = {}
         for pedido in all_pedidos:
             items = json_string_to_items(pedido.items or "[]")
             await populate_items_with_image_paths(session, pedido.id, items)
             pedidos_para_sync.append(PedidoResponse(**pedido_to_response_dict(pedido, items)))
+            if is_stock_eligible_status(pedido.status):
+                consumo_pedido = summarize_material_consumption(items)
+                for nome_material, quantidade in consumo_pedido.items():
+                    consumo_total_ativo[nome_material] = consumo_total_ativo.get(nome_material, 0.0) + quantidade
+
+        if consumo_total_ativo:
+            delta_retorno_total = build_material_stock_delta(consumo_total_ativo, {})
+            await apply_material_stock_delta(session, delta_retorno_total)
 
         # Deletar imagens de todos os pedidos
         for pedido in all_pedidos:
@@ -2155,6 +2203,7 @@ async def update_pedido_item(
     # Atualizar o item na lista do pedido
     # Primeiro deserializamos todos (já feito em find_order_by_item_id mas precisamos da lista completa)
     items = json_string_to_items(pedido.items)
+    items_antes = list(items)
     
     # Recriar o item com os novos dados
     # Importante: manter o ID original
@@ -2174,6 +2223,12 @@ async def update_pedido_item(
         raise HTTPException(status_code=400, detail=f"Dados inválidos para o item: {str(e)}")
     
     # Serializar de volta para JSON e salvar pedido
+    if is_stock_eligible_status(pedido.status):
+        consumo_antes = summarize_material_consumption(items_antes)
+        consumo_depois = summarize_material_consumption(items)
+        delta_estoque = build_material_stock_delta(consumo_antes, consumo_depois)
+        await apply_material_stock_delta(session, delta_estoque)
+
     pedido.items = items_to_json_string(items)
     pedido.ultima_atualizacao = datetime.utcnow()
     
