@@ -5,7 +5,7 @@ import io
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Tuple, Any
+from typing import Optional, Any
 
 import orjson
 from PIL import Image
@@ -35,10 +35,71 @@ from auth.models import User
 LOGGER = logging.getLogger(__name__)
 THUMBNAIL_SIZE = (300, 300)
 JPEG_QUALITY = 60
+MYSQL_TEXT_SOFT_LIMIT_BYTES = 60000
 
 _REMOTE_ENGINE = None
 _REMOTE_TABLES = None
 _LOCAL_SYNC_ENGINE = None
+
+
+def _is_data_url(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith("data:image/")
+
+
+def _sanitize_items_for_remote(items_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sanitized: list[dict[str, Any]] = []
+    for item in items_data:
+        if not isinstance(item, dict):
+            continue
+        cleaned = dict(item)
+        cleaned.pop("imagem_base64", None)
+        if _is_data_url(cleaned.get("imagem")):
+            cleaned["imagem"] = None
+        sanitized.append(cleaned)
+    return sanitized
+
+
+def _build_items_json_for_remote(items_json_original: Any, pedido_id: int) -> str:
+    try:
+        items_data = orjson.loads(items_json_original) if isinstance(items_json_original, str) else items_json_original
+        if not isinstance(items_data, list):
+            return str(items_json_original or "[]")
+
+        sanitized = _sanitize_items_for_remote(items_data)
+        serialized = orjson.dumps(sanitized).decode("utf-8")
+        if len(serialized.encode("utf-8")) <= MYSQL_TEXT_SOFT_LIMIT_BYTES:
+            return serialized
+
+        # Fallback para casos muito grandes: reduzir para campos essenciais.
+        reduced_items: list[dict[str, Any]] = []
+        for item in sanitized:
+            reduced_items.append(
+                {
+                    "id": item.get("id"),
+                    "tipo_producao": item.get("tipo_producao"),
+                    "descricao": item.get("descricao"),
+                    "largura": item.get("largura"),
+                    "altura": item.get("altura"),
+                    "valor_unitario": item.get("valor_unitario"),
+                    "item_identificador": item.get("item_identificador"),
+                }
+            )
+        reduced_serialized = orjson.dumps(reduced_items).decode("utf-8")
+        if len(reduced_serialized.encode("utf-8")) <= MYSQL_TEXT_SOFT_LIMIT_BYTES:
+            LOGGER.warning(
+                "items_json do pedido %s excedeu limite TEXT; enviado payload reduzido.",
+                pedido_id,
+            )
+            return reduced_serialized
+
+        LOGGER.error(
+            "items_json do pedido %s segue acima do limite TEXT mesmo reduzido; enviando lista vazia.",
+            pedido_id,
+        )
+        return "[]"
+    except Exception as exc:
+        LOGGER.warning("Erro ao processar items_json do pedido %s, usando []: %s", pedido_id, exc)
+        return "[]"
 
 
 def _should_skip_sync() -> bool:
@@ -209,48 +270,7 @@ def sync_pedido(pedido_id: int) -> None:
 
         # Buscar imagens do pedido antes de processar o JSON
         imagens = session.exec(select(PedidoImagem).where(PedidoImagem.pedido_id == pedido_id)).all()
-        
-        # Criar um dicionário de imagens por (item_index, item_identificador) para busca rápida
-        imagens_map: Dict[Tuple[int, Optional[str]], PedidoImagem] = {}
-        for img in imagens:
-            key = (img.item_index, img.item_identificador)
-            imagens_map[key] = img
-
-        # Processar items_json para incluir imagens como base64
-        items_json_original = pedido.items or "[]"
-        items_json_atualizado = items_json_original
-        
-        try:
-            items_data = orjson.loads(items_json_original) if isinstance(items_json_original, str) else items_json_original
-            
-            # Atualizar cada item com a imagem em base64 se existir
-            for index, item in enumerate(items_data):
-                # Tentar encontrar imagem por index e identificador
-                item_identifier = item.get('item_identificador') or item.get('identifier')
-                key = (index, item_identifier)
-                
-                # Se não encontrar pelo identificador, tentar apenas pelo index
-                if key not in imagens_map:
-                    key = (index, None)
-                
-                if key in imagens_map:
-                    image_row = imagens_map[key]
-                    try:
-                        abs_path = absolute_media_path(image_row.path)
-                        if abs_path.exists():
-                            b64 = _thumbnail_to_base64(str(abs_path))
-                            if b64:
-                                # Adicionar prefixo data URL
-                                item['imagem'] = f"data:image/jpeg;base64,{b64}"
-                                item['imagem_base64'] = b64
-                                LOGGER.debug("Imagem incluída no item %s do pedido %s", index, pedido_id)
-                    except Exception as e:
-                        LOGGER.warning("Erro ao processar imagem do item %s do pedido %s: %s", index, pedido_id, e)
-            
-            # Converter de volta para JSON string
-            items_json_atualizado = orjson.dumps(items_data).decode("utf-8")
-        except Exception as e:
-            LOGGER.warning("Erro ao processar items_json do pedido %s, usando original: %s", pedido_id, e)
+        items_json_atualizado = _build_items_json_for_remote(pedido.items or "[]", pedido_id)
 
         pedido_row = {
             "pedido_id": pedido.id,
@@ -278,7 +298,7 @@ def sync_pedido(pedido_id: int) -> None:
             "pronto": bool(pedido.pronto),
             "sublimacao_maquina": pedido.sublimacao_maquina,
             "sublimacao_data_impressao": pedido.sublimacao_data_impressao,
-            "items_json": items_json_atualizado,  # Usar o JSON atualizado com imagens
+            "items_json": items_json_atualizado,
             "data_criacao": pedido.data_criacao,
             "ultima_atualizacao": pedido.ultima_atualizacao,
         }
