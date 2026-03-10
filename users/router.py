@@ -1,15 +1,15 @@
 from datetime import datetime, timezone
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from auth.models import User
 from base import get_session
+from sync.schema import SyncEntity, SyncEventType
+from sync.service import enqueue_sync_event
 from .schema import UserCreate, UserRead, UserUpdate
-from shared.mysql_pwa_sync_service import sync_user as mysql_sync_user
-from shared.mysql_pwa_sync_service import sync_user_deletion as mysql_sync_user_deletion
 
 
 router = APIRouter(prefix="/users", tags=["Usuários"])
@@ -46,7 +46,6 @@ async def get_user(user_id: int, session: AsyncSession = Depends(get_session)):
 @router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def create_user(
     payload: UserCreate,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.exec(select(User).where(User.username == payload.username))
@@ -68,9 +67,16 @@ async def create_user(
     )
 
     session.add(user)
+    await session.flush()
+    await enqueue_sync_event(
+        session,
+        entity=SyncEntity.USER.value,
+        event_type=SyncEventType.UPSERT.value,
+        entity_id=user.id,
+        payload={"user_id": user.id},
+    )
     await session.commit()
     await session.refresh(user)
-    background_tasks.add_task(mysql_sync_user, user.id)
     return _to_read_model(user)
 
 
@@ -78,7 +84,6 @@ async def create_user(
 async def update_user(
     user_id: int,
     payload: UserUpdate,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
     user = await session.get(User, user_id)
@@ -106,16 +111,21 @@ async def update_user(
     user.updated_at = datetime.now(timezone.utc)
 
     session.add(user)
+    await enqueue_sync_event(
+        session,
+        entity=SyncEntity.USER.value,
+        event_type=SyncEventType.UPSERT.value,
+        entity_id=user.id,
+        payload={"user_id": user.id},
+    )
     await session.commit()
     await session.refresh(user)
-    background_tasks.add_task(mysql_sync_user, user.id)
     return _to_read_model(user)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: int,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
     user = await session.get(User, user_id)
@@ -124,6 +134,11 @@ async def delete_user(
 
     username = user.username
     await session.delete(user)
+    await enqueue_sync_event(
+        session,
+        entity=SyncEntity.USER.value,
+        event_type=SyncEventType.DELETE.value,
+        payload={"username": username},
+    )
     await session.commit()
-    background_tasks.add_task(mysql_sync_user_deletion, username)
     return None
