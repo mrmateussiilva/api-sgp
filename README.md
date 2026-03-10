@@ -93,6 +93,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -UseHypercorn $fal
 
 ## 📚 Endpoints da API
 
+## 🔄 Sincronização Robusta (Outbox)
+
+A sincronização com o banco remoto MySQL agora usa uma fila local resiliente (`sync_outbox`) + worker com retry.
+
+Documentação completa em: `docs/SYNC_OUTBOX.md`
+
 ### Pedidos
 
 #### POST `/api/v1/pedidos/`

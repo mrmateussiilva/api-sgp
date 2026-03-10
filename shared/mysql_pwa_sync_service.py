@@ -48,6 +48,9 @@ def _should_skip_sync() -> bool:
 
 def _build_mysql_url() -> Optional[str]:
     if not all([settings.DB_USER, settings.DB_PASS, settings.DB_HOST, settings.DB_NAME]):
+        LOGGER.error(
+            "Sync MySQL desativado: variáveis DB_USER/DB_PASS/DB_HOST/DB_NAME não estão completas."
+        )
         return None
     return URL.create(
         drivername="mysql+pymysql",
@@ -67,7 +70,11 @@ def _get_remote_engine():
     mysql_url = _build_mysql_url()
     if not mysql_url:
         return None
-    _REMOTE_ENGINE = create_engine(mysql_url, pool_pre_ping=True)
+    try:
+        _REMOTE_ENGINE = create_engine(mysql_url, pool_pre_ping=True)
+    except Exception as exc:
+        LOGGER.exception("Erro ao criar engine MySQL remota: %s", exc)
+        return None
     return _REMOTE_ENGINE
 
 
@@ -151,7 +158,11 @@ def _get_tables():
     engine = _get_remote_engine()
     if engine is None:
         return None
-    metadata.create_all(engine)
+    try:
+        metadata.create_all(engine)
+    except Exception as exc:
+        LOGGER.exception("Erro ao garantir tabelas remotas MySQL: %s", exc)
+        return None
     _REMOTE_TABLES = {
         "pwa_pedidos": pwa_pedidos,
         "pwa_pedido_imagens": pwa_pedido_imagens,

@@ -57,8 +57,8 @@ from pathlib import Path
 from uuid import uuid4
 import mimetypes
 from shared.vps_sync_service import vps_sync_service
-from shared.mysql_pwa_sync_service import sync_pedido as mysql_sync_pedido
-from shared.mysql_pwa_sync_service import sync_deletion as mysql_sync_deletion
+from sync.schema import SyncEntity, SyncEventType
+from sync.service import enqueue_sync_event
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignored", auto_error=False)
 
@@ -836,6 +836,13 @@ async def criar_pedido(
             if await apply_image_changes(session, db_pedido.id, pending_uploads, [], items_payload):
                 db_pedido.items = items_to_json_string(items_payload)
 
+            await enqueue_sync_event(
+                session,
+                entity=SyncEntity.PEDIDO.value,
+                event_type=SyncEventType.UPSERT.value,
+                entity_id=db_pedido.id,
+                payload={"pedido_id": db_pedido.id},
+            )
             await session.commit()
             
             # Registrar logs de produção para itens com máquina atribuída
@@ -909,8 +916,6 @@ async def criar_pedido(
             
             # Sincronizar com a VPS (Background)
             background_tasks.add_task(vps_sync_service.sync_pedido, response)
-            # Sincronizar com MySQL remoto (Background)
-            background_tasks.add_task(mysql_sync_pedido, db_pedido.id)
 
             return response
 
@@ -1707,6 +1712,14 @@ async def batch_atualizar_status(
             # Se status for ENTREGUE ou PRONTO, sincronizar flags se necessário
             if update.status == Status.ENTREGUE:
                 pedido.pronto = True
+
+            await enqueue_sync_event(
+                session,
+                entity=SyncEntity.PEDIDO.value,
+                event_type=SyncEventType.UPSERT.value,
+                entity_id=pedido.id,
+                payload={"pedido_id": pedido.id},
+            )
             
         await session.commit()
         return {"count": len(pedidos), "status": update.status}
@@ -1815,6 +1828,13 @@ async def atualizar_pedido(
                 ):
                     db_pedido.items = items_to_json_string(items_payload_for_images)
 
+            await enqueue_sync_event(
+                session,
+                entity=SyncEntity.PEDIDO.value,
+                event_type=SyncEventType.UPSERT.value,
+                entity_id=db_pedido.id,
+                payload={"pedido_id": db_pedido.id},
+            )
             await session.commit()
             await session.refresh(db_pedido)
             
@@ -1874,8 +1894,6 @@ async def atualizar_pedido(
             
             # Sincronizar com a VPS (Background) após qualquer atualização bem-sucedida
             background_tasks.add_task(vps_sync_service.sync_pedido, response)
-            # Sincronizar com MySQL remoto (Background)
-            background_tasks.add_task(mysql_sync_pedido, db_pedido.id)
 
             return response
             
@@ -1953,13 +1971,18 @@ async def deletar_pedido(
             await session.delete(image)
         
         await session.delete(db_pedido)
+        await enqueue_sync_event(
+            session,
+            entity=SyncEntity.PEDIDO.value,
+            event_type=SyncEventType.DELETE.value,
+            entity_id=pedido_id,
+            payload={"pedido_id": pedido_id},
+        )
         await session.commit()
         broadcast_order_event("order_deleted", order_id=pedido_id)
 
         # Sincronizar deleção com a VPS
         background_tasks.add_task(vps_sync_service.sync_deletion, pedido_res)
-        # Sincronizar deleção no MySQL remoto
-        background_tasks.add_task(mysql_sync_deletion, pedido_id)
 
         return {"message": "Pedido deletado com sucesso"}
         
@@ -2002,6 +2025,13 @@ async def deletar_todos_pedidos(
         # Deletar todos os pedidos (os itens serão deletados em cascata)
         for pedido in all_pedidos:
             await session.delete(pedido)
+            await enqueue_sync_event(
+                session,
+                entity=SyncEntity.PEDIDO.value,
+                event_type=SyncEventType.DELETE.value,
+                entity_id=pedido.id,
+                payload={"pedido_id": pedido.id},
+            )
         
         await session.commit()
         broadcast_order_event("order_deleted", order_id=None)
@@ -2009,7 +2039,6 @@ async def deletar_todos_pedidos(
         # Sincronizar deleção em massa (para cada pedido)
         for pedido_res in pedidos_para_sync:
             background_tasks.add_task(vps_sync_service.sync_deletion, pedido_res)
-            background_tasks.add_task(mysql_sync_deletion, pedido_res.id)
 
         return {"message": "Todos os pedidos foram deletados com sucesso"}
         
