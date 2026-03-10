@@ -81,6 +81,10 @@ DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100000  # Limite muito alto para permitir buscar todos os pedidos
 
 
+def is_material_stock_enabled() -> bool:
+    return bool(getattr(settings, "MATERIAL_STOCK_AUTO_DEDUCTION", False))
+
+
 @dataclass
 class PendingImageUpload:
     index: int
@@ -826,7 +830,7 @@ async def criar_pedido(
             if not pedido_data.get("numero"):
                 pedido_data["numero"] = await get_next_order_number(session)
 
-            if is_stock_eligible_status(pedido_data.get("status")):
+            if is_material_stock_enabled() and is_stock_eligible_status(pedido_data.get("status")):
                 consumo_novo = summarize_material_consumption(items_payload)
                 await apply_material_stock_delta(session, consumo_novo)
 
@@ -1841,8 +1845,9 @@ async def atualizar_pedido(
                 if status_novo_aplica_estoque
                 else {}
             )
-            delta_estoque = build_material_stock_delta(consumo_anterior, consumo_novo)
-            await apply_material_stock_delta(session, delta_estoque)
+            if is_material_stock_enabled():
+                delta_estoque = build_material_stock_delta(consumo_anterior, consumo_novo)
+                await apply_material_stock_delta(session, delta_estoque)
 
             # Atualizar timestamp
             local_update_data['ultima_atualizacao'] = datetime.utcnow()
@@ -1999,7 +2004,7 @@ async def deletar_pedido(
         await populate_items_with_image_paths(session, pedido_id, items)
         pedido_res = PedidoResponse(**pedido_to_response_dict(db_pedido, items))
 
-        if is_stock_eligible_status(db_pedido.status):
+        if is_material_stock_enabled() and is_stock_eligible_status(db_pedido.status):
             consumo_atual = summarize_material_consumption(items)
             delta_retorno = build_material_stock_delta(consumo_atual, {})
             await apply_material_stock_delta(session, delta_retorno)
@@ -2059,7 +2064,7 @@ async def deletar_todos_pedidos(
                 for nome_material, quantidade in consumo_pedido.items():
                     consumo_total_ativo[nome_material] = consumo_total_ativo.get(nome_material, 0.0) + quantidade
 
-        if consumo_total_ativo:
+        if is_material_stock_enabled() and consumo_total_ativo:
             delta_retorno_total = build_material_stock_delta(consumo_total_ativo, {})
             await apply_material_stock_delta(session, delta_retorno_total)
 
@@ -2223,7 +2228,7 @@ async def update_pedido_item(
         raise HTTPException(status_code=400, detail=f"Dados inválidos para o item: {str(e)}")
     
     # Serializar de volta para JSON e salvar pedido
-    if is_stock_eligible_status(pedido.status):
+    if is_material_stock_enabled() and is_stock_eligible_status(pedido.status):
         consumo_antes = summarize_material_consumption(items_antes)
         consumo_depois = summarize_material_consumption(items)
         delta_estoque = build_material_stock_delta(consumo_antes, consumo_depois)

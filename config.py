@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     MEDIA_ROOT: str = "media"
     LOG_DIR: str = "logs"
     MAX_IMAGE_SIZE_MB: int = 10
+    MATERIAL_STOCK_AUTO_DEDUCTION: bool = False
 
     # Configurações do ambiente
     ENVIRONMENT: str = "development"
