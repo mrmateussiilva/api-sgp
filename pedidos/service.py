@@ -43,6 +43,11 @@ def item_to_plain_dict(item: Any) -> Dict[str, Any]:
             normalized = normalize_acabamento(acabamento)
             if normalized:
                 item_dict['acabamento'] = normalized.model_dump(exclude_none=True)
+        
+        # Garantir que comentários sejam incluídos se existirem
+        comentarios = getattr(item, 'comentarios', None)
+        if comentarios:
+            item_dict['comentarios'] = comentarios
     elif isinstance(item, dict):
         item_dict = item.copy()
         acabamento_value = item_dict.get('acabamento')

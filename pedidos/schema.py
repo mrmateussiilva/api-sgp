@@ -203,6 +203,7 @@ class ItemPedido(SQLModel):
     data_impressao: Optional[str] = None
     perfil_cor: Optional[str] = None
     tecido_fornecedor: Optional[str] = None
+    comentarios: Optional[List[dict]] = Field(default_factory=list)
 
 
 class PedidoBase(SQLModel):
