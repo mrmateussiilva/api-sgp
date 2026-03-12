@@ -52,6 +52,7 @@ from .service import (
     pedido_to_response_dict,
     _save_pedido_json_internal,
 )
+from .pricing import normalize_order_financials
 import aiofiles
 from pathlib import Path
 from uuid import uuid4
@@ -833,6 +834,16 @@ async def criar_pedido(
             if is_material_stock_enabled() and is_stock_eligible_status(pedido_data.get("status")):
                 consumo_novo = summarize_material_consumption(items_payload)
                 await apply_material_stock_delta(session, consumo_novo)
+
+            # ── Recalcular valor_unitario e totais do pedido no backend ──────────
+            # Guardrail: recalcula items e totais independentemente do frontend.
+            items_payload, totais = normalize_order_financials(
+                items_payload, 
+                pedido_data.get("valor_frete")
+            )
+            pedido_data["valor_itens"] = totais["valor_itens"]
+            pedido_data["valor_total"] = totais["valor_total"]
+            # ─────────────────────────────────────────────────────────────────────
 
             items_json = items_to_json_string(items_payload)
 
@@ -1778,6 +1789,12 @@ async def atualizar_pedido(
             update_data['items'],
             allow_removal=True
         )
+        # ── Normalizar valor_unitario dos itens antes de persistir ───────────
+        # Note: os totais do pedido (valor_total) serão calculados 
+        # logo abaixo no loop de retry, após o merger com dados do banco.
+        from .pricing import recalculate_items_totals
+        items_payload_for_images = recalculate_items_totals(items_payload_for_images)
+        # ─────────────────────────────────────────────────────────────────────
         update_data['items'] = items_to_json_string(items_payload_for_images)
     
     for attempt in range(1, MAX_RETRIES + 1):
@@ -1851,7 +1868,25 @@ async def atualizar_pedido(
 
             # Atualizar timestamp
             local_update_data['ultima_atualizacao'] = datetime.utcnow()
-            
+
+            # ── Recalcular totais do pedido (Guardrail) ──────────────────────
+            # Garante consistência financeira recalculando valor_total sempre que
+            # items ou frete são alterados.
+            if items_payload_for_images is not None or 'valor_frete' in local_update_data:
+                # Usar novos itens se enviados, senão usar os do banco
+                target_items = items_payload_for_images if items_payload_for_images is not None else items_anteriores
+                
+                valor_frete_efetivo = (
+                    local_update_data.get("valor_frete")
+                    if 'valor_frete' in local_update_data
+                    else getattr(db_pedido, "valor_frete", "0.00")
+                )
+                
+                _, totais = normalize_order_financials(target_items, valor_frete_efetivo)
+                local_update_data["valor_itens"] = totais["valor_itens"]
+                local_update_data["valor_total"] = totais["valor_total"]
+            # ─────────────────────────────────────────────────────────────────
+
             # Aplicar atualizações
             for field, value in local_update_data.items():
                 setattr(db_pedido, field, value)

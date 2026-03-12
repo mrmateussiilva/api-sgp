@@ -19,6 +19,7 @@ from .schema import (
     Status,
     PedidoImagem
 )
+from .pricing import normalize_order_financials
 from .images import MEDIA_ROOT, absolute_media_path, delete_media_file
 
 logger = logging.getLogger(__name__)
@@ -241,14 +242,20 @@ class PedidoService:
         return result.scalars().all()
 
     async def create(self, pedido_create: PedidoCreate) -> Pedido:
-        # Prepara items
-        items_json = items_to_json_string(pedido_create.items)
+        # ── Normalização do Guardrail Financeiro ────────────────────────────
+        # Garante que items e totais sejam recalcados no backend.
+        items_dict = [item_to_plain_dict(i) for i in pedido_create.items]
+        items_norm, totais = normalize_order_financials(items_dict, pedido_create.valor_frete)
         
-        # Cria objeto Pedido
-        db_pedido = Pedido.model_validate(
-            pedido_create, 
-            update={"items": items_json}
+        # Cria objeto Pedido sobrescrevendo os valores enviados
+        pedido_data = pedido_create.model_dump(exclude={"items"})
+        pedido_data.update(totais)
+        
+        db_pedido = Pedido(
+            **pedido_data,
+            items=items_to_json_string(items_norm)
         )
+        # ─────────────────────────────────────────────────────────────────────
         
         # Lógica de numeração incremental (simplificada, idealmente deveria ser sequence no banco)
         # TODO: Mover para sequence ou tabela separada para evitar race condition
@@ -270,11 +277,25 @@ class PedidoService:
             
         pedido_data = pedido_update.model_dump(exclude_unset=True)
         
-        # Trata items separadamente
+        # Trata items separadamente com Guardrail
         if "items" in pedido_data:
             items = pedido_data.pop("items")
-            db_pedido.items = items_to_json_string(items)
+            items_dict = [item_to_plain_dict(i) for i in items]
             
+            valor_frete = pedido_data.get("valor_frete") or db_pedido.valor_frete
+            items_norm, totais = normalize_order_financials(items_dict, valor_frete)
+            
+            db_pedido.items = items_to_json_string(items_norm)
+            db_pedido.valor_itens = totais["valor_itens"]
+            db_pedido.valor_total = totais["valor_total"]
+            
+        # Se mudou só o frete, recalcular total
+        elif "valor_frete" in pedido_data:
+            items_anteriores = json_string_to_items(db_pedido.items or "[]")
+            items_dict = [item_to_plain_dict(i) for i in items_anteriores]
+            _, totais = normalize_order_financials(items_dict, pedido_data["valor_frete"])
+            db_pedido.valor_total = totais["valor_total"]
+
         for key, value in pedido_data.items():
             setattr(db_pedido, key, value)
             
