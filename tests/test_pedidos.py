@@ -606,3 +606,100 @@ async def test_atualizar_pedido_remove_imagem_quando_nula(client: AsyncClient, c
 
     files = [p for p in (media_root / "pedidos").rglob("*") if p.is_file()]
     assert len(files) == 0
+
+
+@pytest.mark.asyncio
+async def test_painel_com_ilhos_calcula_total_correto(client: AsyncClient, clean_db):
+    """
+    Regressão: garante que o backend recalcula valor_unitario de painel
+    incluindo o custo dos ilhós no total.
+
+    Caso real:
+        valor_painel = R$ 100,00
+        quantidade_ilhos = 18
+        valor_ilhos = R$ 1,00
+        → valor_unitario esperado = R$ 118,00
+        → valor_total esperado    = R$ 118,00
+    """
+    pedido_data = {
+        "cliente": "Teste Regressão Ilhós",
+        "data_entrada": "2024-01-15",
+        "valor_frete": "0.00",
+        "items": [
+            {
+                "tipo_producao": "painel",
+                "descricao": "Painel 2x1 com ilhós",
+                "largura": "2.0",
+                "altura": "1.0",
+                "valor_painel": "100.00",
+                "valores_adicionais": "0.00",
+                "tipo_acabamento": "ilhos",
+                "quantidade_ilhos": "18",
+                "valor_ilhos": "1.00",
+                "quantidade_paineis": "1",
+            }
+        ],
+    }
+
+    response = await client.post("/pedidos/", json=pedido_data)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Item deve ter valor_unitario = 118,00
+    assert len(data["items"]) == 1
+    item = data["items"][0]
+    assert float(item["valor_unitario"]) == 118.00, (
+        f"valor_unitario esperado=118.00, obtido={item['valor_unitario']}"
+    )
+
+    # Total do pedido deve ser 118,00 (sem frete)
+    assert float(data["valor_total"]) == 118.00, (
+        f"valor_total esperado=118.00, obtido={data['valor_total']}"
+    )
+    assert float(data["valor_itens"]) == 118.00, (
+        f"valor_itens esperado=118.00, obtido={data['valor_itens']}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_painel_com_ilhos_atualizado_mantem_total_correto(client: AsyncClient, clean_db):
+    """
+    Regressão (PATCH): atualizar um pedido com painel+ilhós deve
+    recalcular corretamente o valor_unitario e o valor_total.
+    """
+    # Criar pedido simples
+    create_resp = await client.post("/pedidos/", json={
+        "cliente": "Teste PATCH Ilhós",
+        "data_entrada": "2024-01-15",
+        "valor_frete": "0.00",
+        "items": [],
+    })
+    assert create_resp.status_code == 200
+    pedido_id = create_resp.json()["id"]
+
+    # Atualizar adicionando item com ilhós
+    update_resp = await client.patch(f"/pedidos/{pedido_id}", json={
+        "valor_frete": "0.00",
+        "items": [
+            {
+                "tipo_producao": "painel",
+                "descricao": "Painel atualizado com ilhós",
+                "valor_painel": "200.00",
+                "tipo_acabamento": "ilhos",
+                "quantidade_ilhos": "20",
+                "valor_ilhos": "2.50",
+                "quantidade_paineis": "1",
+            }
+        ],
+    })
+    assert update_resp.status_code == 200
+    data = update_resp.json()
+
+    # 200 + (20 × 2.50) = 200 + 50 = 250
+    item = data["items"][0]
+    assert float(item["valor_unitario"]) == 250.00, (
+        f"valor_unitario esperado=250.00, obtido={item['valor_unitario']}"
+    )
+    assert float(data["valor_total"]) == 250.00, (
+        f"valor_total esperado=250.00, obtido={data['valor_total']}"
+    )
