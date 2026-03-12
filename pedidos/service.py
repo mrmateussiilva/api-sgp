@@ -1,7 +1,7 @@
 from typing import List, Optional, Any, Dict
 import logging
 import orjson
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import aiofiles
 from sqlmodel import select, func, and_
@@ -189,6 +189,7 @@ def pedido_to_response_dict(pedido: Pedido, items: List[ItemPedido]) -> dict:
         'items': items,
         'data_criacao': pedido.data_criacao,
         'ultima_atualizacao': pedido.ultima_atualizacao,
+        'financeiro_liberado_em': pedido.financeiro_liberado_em,
         'valor_total_calculado': f"{valor_total_calculado:.2f}".replace('.', ',')
     }
 
@@ -260,6 +261,10 @@ class PedidoService:
         # Lógica de numeração incremental (simplificada, idealmente deveria ser sequence no banco)
         # TODO: Mover para sequence ou tabela separada para evitar race condition
         
+        # Se for criado já com financeiro liberado
+        if db_pedido.financeiro:
+            db_pedido.financeiro_liberado_em = datetime.now(timezone.utc)
+
         self.session.add(db_pedido)
         await self.session.commit()
         await self.session.refresh(db_pedido)

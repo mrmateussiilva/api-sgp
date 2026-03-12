@@ -25,7 +25,7 @@ from .schema import (
     BatchStatusUpdate,
 )
 from .realtime import schedule_broadcast
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import orjson
 from auth.security import decode_access_token
 from auth.models import User
@@ -1885,6 +1885,13 @@ async def atualizar_pedido(
                 _, totais = normalize_order_financials(target_items, valor_frete_efetivo)
                 local_update_data["valor_itens"] = totais["valor_itens"]
                 local_update_data["valor_total"] = totais["valor_total"]
+            # ── Guardrail para financeiro_liberado_em ────────────────────────
+            if 'financeiro' in local_update_data:
+                novo_val = local_update_data['financeiro']
+                if novo_val and not db_pedido.financeiro:
+                    local_update_data['financeiro_liberado_em'] = datetime.now(timezone.utc)
+                elif not novo_val and db_pedido.financeiro:
+                    local_update_data['financeiro_liberado_em'] = None
             # ─────────────────────────────────────────────────────────────────
 
             # Aplicar atualizações

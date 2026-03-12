@@ -259,6 +259,7 @@ class PedidoBase(SQLModel):
     pronto: bool = False
     sublimacao_maquina: Optional[str] = None
     sublimacao_data_impressao: Optional[str] = None
+    financeiro_liberado_em: Optional[datetime] = Field(default=None)
 
 
 class PedidoCreate(PedidoBase):
@@ -300,6 +301,7 @@ class PedidoUpdate(SQLModel):
     pronto: Optional[bool] = None
     sublimacao_maquina: Optional[str] = None
     sublimacao_data_impressao: Optional[str] = None
+    financeiro_liberado_em: Optional[datetime] = None
 
     # Items
     items: Optional[List[ItemPedido]] = None
@@ -364,6 +366,7 @@ class PedidoResponse(PedidoBase):
     items: List[ItemPedido]
     data_criacao: datetime
     ultima_atualizacao: datetime
+    financeiro_liberado_em: Optional[datetime] = None
     estado_cliente: Optional[str] = None
     valor_total_calculado: Optional[str] = None  # Campo calculado: frete + itens (para validação)
     
