@@ -1,5 +1,5 @@
 from collections import Counter
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import select
@@ -14,7 +14,10 @@ from .schema import (
     MaterialUpdate,
     MaterialUsoEstatisticasResponse,
     MaterialUsoItem,
+    MaterialStatsResponse,
+    MaterialEvolutionResponse,
 )
+from .stats_service import get_material_stats, get_material_evolution
 
 router = APIRouter(prefix="/materiais", tags=["Materiais"])
 
@@ -23,6 +26,42 @@ router = APIRouter(prefix="/materiais", tags=["Materiais"])
 async def list_materiais(session: AsyncSession = Depends(get_session)):
     result = await session.exec(select(Material))
     return result.all()
+
+
+@router.get("/stats", response_model=MaterialStatsResponse)
+async def get_materiais_stats_v2(
+    data_inicio: Optional[str] = Query(None),
+    data_fim: Optional[str] = Query(None),
+    tipo_producao: Optional[str] = Query(None),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Novo endpoint de estatísticas consolidadas para a tela de análise de materiais.
+    """
+    return await get_material_stats(
+        session=session,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        tipo_producao=tipo_producao
+    )
+
+
+@router.get("/stats/evolucao", response_model=MaterialEvolutionResponse)
+async def get_materiais_stats_evolucao(
+    data_inicio: Optional[str] = Query(None),
+    data_fim: Optional[str] = Query(None),
+    tipo_producao: Optional[str] = Query(None),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Endpoint para gráfico de evolução de consumo (m²) ao longo do tempo.
+    """
+    return await get_material_evolution(
+        session=session,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        tipo_producao=tipo_producao
+    )
 
 
 def _normalize_material_name(nome: str) -> str:

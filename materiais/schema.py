@@ -1,4 +1,4 @@
-from typing import Optional, Literal
+from typing import Optional, Literal, List, Dict
 
 from sqlmodel import Field, SQLModel
 
@@ -44,3 +44,39 @@ class MaterialUsoEstatisticasResponse(SQLModel):
     total_itens_com_material: int = 0
     total_materiais_distintos_com_uso: int = 0
     materiais: list[MaterialUsoItem] = []
+
+
+class RankingItem(SQLModel):
+    nome: str
+    quantidade_itens: int
+    area_total_m2: float
+    percentual_area: float
+
+
+class MaterialStatsKPIs(SQLModel):
+    total_itens: int
+    total_area_m2: float
+    material_mais_usado: Optional[str] = None
+    acabamento_mais_usado: Optional[str] = None
+    total_ilhos: int
+    total_itens_com_ilhos: int
+    data_pico: Optional[str] = None
+    m2_pico: float = 0.0
+
+
+class MaterialStatsResponse(SQLModel):
+    kpis: MaterialStatsKPIs
+    ranking_materiais: List[RankingItem]
+    ranking_acabamentos: List[RankingItem]
+    por_tipo_producao: Dict[str, List[RankingItem]]
+
+
+class MaterialEvolutionItem(SQLModel):
+    data: str
+    total: float
+    top_materiais: Dict[str, float]
+
+
+class MaterialEvolutionResponse(SQLModel):
+    top_3_nomes: List[str]
+    evolucao: List[MaterialEvolutionItem]
