@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from urllib.parse import unquote
 import uuid
 
@@ -87,42 +87,55 @@ _STATUS_IGNORADOS = {Status.CANCELADO, Status.ENTREGUE}
     response_model=List[DesignerArteItemResponse],
     summary="Lista itens de arte de um designer",
     description=(
-        "Retorna todos os itens de pedidos ativos atribuídos ao designer informado. "
-        "Pedidos cancelados ou entregues são ignorados. "
-        "Muito mais eficiente que varrer todos os pedidos no frontend."
+        "Retorna itens de pedidos ativos atribuídos ao designer informado. "
+        "Suporta filtros de data e paginação para performance."
     ),
 )
 async def get_itens_designer(
     nome: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Busca itens de arte diretamente no banco filtrando por designer.
-    Evita carregar 200+ pedidos completos no frontend.
+    Busca itens de arte diretamente no banco filtrando por designer e data.
     """
     nome_decoded = unquote(nome).strip()
+    
+    # Limites de segurança
+    limit = min(max(limit, 1), 200)
 
-    # Buscar apenas pedidos não cancelados/entregues
+    # 1. Query no banco filtrando por status e data
     stmt = select(Pedido).where(
         Pedido.status.not_in(list(_STATUS_IGNORADOS))
     )
+    
+    if start_date:
+        stmt = stmt.where(Pedido.data_entrada >= start_date)
+    if end_date:
+        stmt = stmt.where(Pedido.data_entrada <= end_date)
+        
+    # Ordenar por data_entrada desc (mais recentes primeiro)
+    stmt = stmt.order_by(Pedido.data_entrada.desc())
+
     result = await session.exec(stmt)
     pedidos = result.all()
 
     designer_items: List[DesignerArteItemResponse] = []
 
+    # 2. Extrair itens do JSON e filtrar por designer em memória
     for pedido in pedidos:
         if not pedido.items:
             continue
 
         items = json_string_to_items(pedido.items)
         for i, item in enumerate(items):
-            # Comparação case-insensitive para robustez
             item_designer = (item.designer or "").strip().lower()
             if item_designer != nome_decoded.lower():
                 continue
 
-            # Calcular item_id (mesmo critério do frontend)
             item_id = item.id if item.id is not None else (pedido.id * 1000 + i)
 
             designer_items.append(
@@ -142,8 +155,6 @@ async def get_itens_designer(
                     status_pedido=pedido.status.value if hasattr(pedido.status, "value") else str(pedido.status),
                     prioridade=pedido.prioridade.value if hasattr(pedido.prioridade, "value") else str(pedido.prioridade),
                     status_arte="liberado" if getattr(item, "legenda_imagem", None) == "LIBERADO" else "aguardando",
-                    
-                    # Novos campos técnicos
                     tecido=item.tecido,
                     composicao_tecidos=item.composicao_tecidos,
                     acabamento=item.acabamento.model_dump() if item.acabamento else None,
@@ -174,7 +185,8 @@ async def get_itens_designer(
                 )
             )
 
-    return designer_items
+    # 3. Aplicar paginação (limit e offset) na lista final de itens
+    return designer_items[offset : offset + limit]
 
 
 @router.patch(
