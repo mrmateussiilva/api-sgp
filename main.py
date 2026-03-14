@@ -103,6 +103,7 @@ from reposicoes.router import router as reposicoes_router
 from maquinas.router import router as maquinas_router
 from maquinas.print_log_router import router as print_logs_router
 from sync.router import router as sync_router
+from safira.router import router as safira_router
 from sync.worker import sync_outbox_worker
 
 
@@ -113,6 +114,7 @@ from producoes.schema import Producao  # noqa: F401
 from maquinas.schema import Machine  # noqa: F401
 from maquinas.print_log_schema import PrintLog  # noqa: F401
 from sync.schema import SyncOutboxEvent  # noqa: F401
+from safira.models import SafiraLog  # noqa: F401
 
 
 setup_logging()
@@ -170,6 +172,7 @@ app.include_router(reposicoes_router, prefix=settings.API_V1_STR)
 app.include_router(maquinas_router, prefix=settings.API_V1_STR)
 app.include_router(print_logs_router, prefix=settings.API_V1_STR)
 app.include_router(sync_router, prefix=settings.API_V1_STR)
+app.include_router(safira_router, prefix=settings.API_V1_STR + "/safira")
 
 
 @app.get("/")
