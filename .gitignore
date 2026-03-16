@@ -40,6 +40,10 @@ backups/**
 # ============================================
 # Diretório compartilhado (shared/) não deve ser versionado
 shared/**
+!shared/
+!shared/*.py
+!shared/__init__.py
+!shared/.gitkeep
 # releases/**
 # !releases/
 # releases/current
