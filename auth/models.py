@@ -1,6 +1,43 @@
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Column
 from typing import Optional
 from datetime import datetime, timezone
+from sqlalchemy import String
+from sqlalchemy.types import TypeDecorator
+
+
+class FlexibleDateTime(TypeDecorator):
+    """Aceita strings ISO, datetime nativo e timestamps legados no SQLite."""
+
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(value, tz=timezone.utc)
+        if isinstance(value, str):
+            normalized = value.strip()
+            if not normalized:
+                return None
+            normalized = normalized.replace("Z", "+00:00")
+            try:
+                return datetime.fromisoformat(normalized)
+            except ValueError:
+                try:
+                    return datetime.fromtimestamp(float(normalized), tz=timezone.utc)
+                except ValueError:
+                    return None
+        return None
 
 
 class User(SQLModel, table=True):
@@ -13,8 +50,14 @@ class User(SQLModel, table=True):
     password_hash: str
     is_admin: bool = Field(default=False)
     is_active: bool = Field(default=True)
-    created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(FlexibleDateTime(), nullable=True),
+    )
+    updated_at: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(FlexibleDateTime(), nullable=True),
+    )
 
 
 class RevokedToken(SQLModel, table=True):
@@ -24,8 +67,11 @@ class RevokedToken(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     token: str = Field(unique=True, index=True)
-    expires_at: datetime
-    revoked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime = Field(sa_column=Column(FlexibleDateTime(), nullable=False))
+    revoked_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(FlexibleDateTime(), nullable=False),
+    )
 
 
 class UserCreate(SQLModel):
