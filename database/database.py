@@ -1,4 +1,5 @@
 from sqlalchemy import event
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -73,15 +74,23 @@ async def create_db_and_tables():
         
         existing_tables = await conn.run_sync(_check_existing_tables)
         
-        if existing_tables:
-            # Banco já existe com tabelas - apenas garantir que novas tabelas sejam criadas
-            # create_all com checkfirst=True não recria tabelas existentes
-            await conn.run_sync(SQLModel.metadata.create_all, checkfirst=True)
-            print(f"[Database] Banco de dados já existe com {len(existing_tables)} tabelas. Apenas verificando novas tabelas.")
-        else:
-            # Banco novo - criar todas as tabelas
-            await conn.run_sync(SQLModel.metadata.create_all)
-            print("[Database] Banco de dados criado com todas as tabelas.")
+        try:
+            if existing_tables:
+                # Banco já existe com tabelas - apenas garantir que novas tabelas sejam criadas
+                # create_all com checkfirst=True não recria tabelas existentes
+                await conn.run_sync(SQLModel.metadata.create_all, checkfirst=True)
+                print(f"[Database] Banco de dados já existe com {len(existing_tables)} tabelas. Apenas verificando novas tabelas.")
+            else:
+                # Banco novo - criar todas as tabelas
+                await conn.run_sync(SQLModel.metadata.create_all)
+                print("[Database] Banco de dados criado com todas as tabelas.")
+        except OperationalError as exc:
+            # Em startup com múltiplos workers, outro processo pode criar a tabela
+            # entre a inspeção inicial e o DDL deste processo.
+            if "already exists" in str(exc).lower():
+                print("[Database] Tabela criada por outro worker durante o startup. Continuando.")
+            else:
+                raise
 
 
 async def get_session():

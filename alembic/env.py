@@ -31,6 +31,7 @@ from relatorios import schema
 from relatorios_fechamentos import schema
 from reposicoes import schema
 from users import schema
+from sync import schema
 # Note: notificacoes/router.py exists but no schema.py found in glob.
 
 # this is the Alembic Config object, which provides
