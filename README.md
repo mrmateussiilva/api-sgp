@@ -374,6 +374,7 @@ As configurações podem ser alteradas no arquivo `config.py` ou através de var
 - `PROJECT_NAME`: Nome do projeto
 - `VERSION`: Versão da API
 - `BACKEND_CORS_ORIGINS`: Origens permitidas para CORS
+- `BACKEND_CORS_ALLOW_ORIGIN_REGEX`: Regex para origens dinâmicas, como `tauri.localhost`, rede local e URLs HTTPS do `ngrok`
 
 ## 🚀 Múltiplos Workers no Windows
 

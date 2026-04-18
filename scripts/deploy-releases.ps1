@@ -1,78 +1,74 @@
 <#
 .SYNOPSIS
-    Script de deploy com arquitetura de releases versionadas para API SGP.
+    Deploy automatizado da API SGP com releases versionadas para ambiente de intranet.
 
 .DESCRIPTION
-    Este script implementa uma arquitetura de releases versionadas:
-    - Cada versão é isolada em seu próprio diretório (releases/v1.0.5/)
-    - Cada release tem seu próprio ambiente virtual (venv)
-    - Diretórios compartilhados: db, media, logs (shared/)
-    - Link simbólico "current" aponta para a versão ativa
-    - Gerenciamento de serviço Windows via NSSM
-
-.PARAMETER Version
-    Versão a ser deployada (ex: "1.0.5")
-
-.PARAMETER ApiRoot
-    Diretório raiz da API (default: "C:\api")
-
-.PARAMETER ServiceName
-    Nome do serviço Windows (default: "SGP-API")
-
-.PARAMETER Port
-    Porta para o servidor (default: 8000)
-
-.PARAMETER Action
-    Ação a executar: "deploy", "rollback", "list", "status" (default: "deploy")
-
-.PARAMETER RollbackVersion
-    Versão para rollback (obrigatório se Action="rollback")
+    Fluxo suportado:
+    - Receber uma release pronta em ZIP ou usar o diretório atual como fonte
+    - Extrair/copiar para releases/vX.Y.Z
+    - Criar venv isolado
+    - Instalar dependências com uv
+    - Criar .env da release apontando para shared/
+    - Fazer backup do banco antes do update
+    - Rodar migrations
+    - Atualizar o link current
+    - Reiniciar o serviço via NSSM
+    - Validar healthcheck
+    - Fazer rollback automático se necessário
 
 .EXAMPLE
-    .\deploy-releases.ps1 -Version "1.0.5" -Action "deploy"
+    .\scripts\deploy-releases.ps1 -Action deploy -Version 1.0.20 -ReleaseZip C:\deploy\api-sgp-1.0.20.zip
 
 .EXAMPLE
-    .\deploy-releases.ps1 -Action "rollback" -RollbackVersion "1.0.4"
-
-.EXAMPLE
-    .\deploy-releases.ps1 -Action "list"
+    .\scripts\deploy-releases.ps1 -Action rollback -RollbackVersion 1.0.19
 #>
 param(
-    [Parameter(Mandatory=$false)][string]$Version = "1.0.5",
-    [Parameter(Mandatory=$false)][string]$ApiRoot = "C:\api",
-    [Parameter(Mandatory=$false)][string]$ServiceName = "SGP-API",
-    [Parameter(Mandatory=$false)][int]$Port = 8000,
-    [Parameter(Mandatory=$false)][ValidateSet("deploy", "rollback", "list", "status")]
+    [Parameter()][ValidateSet("deploy", "rollback", "list", "status")]
     [string]$Action = "deploy",
-    [Parameter(Mandatory=$false)][string]$RollbackVersion = ""
+    [Parameter()][string]$Version = "",
+    [Parameter()][string]$ReleaseZip = "",
+    [Parameter()][string]$SourcePath = "",
+    [Parameter()][string]$ApiRoot = "C:\api",
+    [Parameter()][string]$ServiceName = "SGP-API",
+    [Parameter()][int]$Port = 8000,
+    [Parameter()][string]$PythonPath = "python",
+    [Parameter()][string]$RollbackVersion = "",
+    [Parameter()][string]$HealthUrl = "",
+    [Parameter()][switch]$SkipBackup,
+    [Parameter()][switch]$SkipMigrations,
+    [Parameter()][switch]$SkipHealthcheck,
+    [Parameter()][switch]$Force
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# Cores para output
 function Write-Info { Write-Host "[INFO] $args" -ForegroundColor Cyan }
 function Write-Success { Write-Host "[SUCCESS] $args" -ForegroundColor Green }
 function Write-Warning { Write-Host "[WARNING] $args" -ForegroundColor Yellow }
-function Write-Error { Write-Host "[ERROR] $args" -ForegroundColor Red }
+function Write-ErrorMessage { Write-Host "[ERROR] $args" -ForegroundColor Red }
+function Write-Step { Write-Host "`n=== $args ===" -ForegroundColor Magenta }
 
-# Diretórios
 $ReleasesDir = Join-Path $ApiRoot "releases"
 $SharedDir = Join-Path $ApiRoot "shared"
 $CurrentLink = Join-Path $ReleasesDir "current"
-$ReleaseDir = Join-Path $ReleasesDir "v$Version"
+$HealthCheckUrl = if ([string]::IsNullOrWhiteSpace($HealthUrl)) { "http://127.0.0.1:$Port/health" } else { $HealthUrl }
 
-# Verificar se está executando como administrador
 function Test-Administrator {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($currentUser)
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-# Inicializar estrutura de diretórios compartilhados
+function Assert-Administrator {
+    if (-not (Test-Administrator)) {
+        throw "Execute o script como Administrador."
+    }
+}
+
 function Initialize-SharedDirectories {
-    Write-Info "Inicializando diretórios compartilhados..."
-    
+    Write-Step "Inicializando estrutura compartilhada"
+
     $sharedDirs = @(
         "db",
         "media\pedidos",
@@ -81,451 +77,584 @@ function Initialize-SharedDirectories {
         "logs",
         "backups"
     )
-    
+
     foreach ($dir in $sharedDirs) {
         $fullPath = Join-Path $SharedDir $dir
         if (-not (Test-Path $fullPath)) {
             New-Item -ItemType Directory -Path $fullPath -Force | Out-Null
-            Write-Success "Diretório compartilhado criado: $dir"
+            Write-Success "Diretório criado: $fullPath"
         }
     }
-    
-    # Criar diretório de releases se não existir
+
     if (-not (Test-Path $ReleasesDir)) {
         New-Item -ItemType Directory -Path $ReleasesDir -Force | Out-Null
         Write-Success "Diretório de releases criado: $ReleasesDir"
     }
 }
 
-# Verificar se uv está instalado
-function Test-UV {
+function Test-Python {
     try {
-        $uvVersion = uv --version 2>&1
-        Write-Success "uv encontrado: $uvVersion"
-        return $true
+        $pythonVersion = & $PythonPath --version 2>&1
+        Write-Success "Python encontrado: $pythonVersion"
     } catch {
-        Write-Error "uv não encontrado. Instale com: cargo install uv"
-        return $false
+        throw "Python não encontrado em '$PythonPath'."
     }
 }
 
-# Criar ambiente virtual para a release
-function New-ReleaseVenv {
-    param([string]$ReleasePath)
-    
-    Write-Info "Criando ambiente virtual para release v$Version..."
-    
-    $venvPath = Join-Path $ReleasePath "venv"
-    
-    if (Test-Path $venvPath) {
-        Write-Warning "Ambiente virtual já existe. Removendo..."
-        Remove-Item -Path $venvPath -Recurse -Force
-    }
-    
-    # Usar uv para criar venv
-    Push-Location $ReleasePath
+function Test-NSSM {
     try {
-        uv venv venv
-        Write-Success "Ambiente virtual criado: $venvPath"
-    } finally {
-        Pop-Location
-    }
-    
-    return $venvPath
-}
-
-# Instalar dependências na release
-function Install-Dependencies {
-    param([string]$ReleasePath, [string]$VenvPath)
-    
-    Write-Info "Instalando dependências para release v$Version..."
-    
-    $pythonPath = Join-Path $VenvPath "Scripts\python.exe"
-    $pipPath = Join-Path $VenvPath "Scripts\pip.exe"
-    
-    Push-Location $ReleasePath
-    try {
-        # Ativar venv e instalar dependências com uv
-        & $pythonPath -m pip install --upgrade pip
-        uv pip install -r requirements.txt
-        
-        Write-Success "Dependências instaladas com sucesso"
-    } finally {
-        Pop-Location
+        $command = Get-Command nssm.exe -ErrorAction Stop
+        return $command.Source
+    } catch {
+        throw "NSSM não encontrado no PATH."
     }
 }
 
-# Copiar arquivos da API para a release
-function Copy-ReleaseFiles {
-    param([string]$SourcePath, [string]$TargetPath)
-    
-    Write-Info "Copiando arquivos para release v$Version..."
-    
-    # Diretórios e arquivos a copiar (excluir db, media, logs, venv, __pycache__, etc)
-    $excludeDirs = @("db", "media", "logs", "backups", "venv", "__pycache__", ".git", "releases", "shared", ".venv")
-    $excludeFiles = @("*.pyc", "*.pyo", "*.db", "*.db-shm", "*.db-wal", ".env")
-    
-    Get-ChildItem -Path $SourcePath -Recurse | ForEach-Object {
-        $relativePath = $_.FullName.Substring($SourcePath.Length + 1)
-        $targetItem = Join-Path $TargetPath $relativePath
-        
-        # Pular diretórios excluídos
-        $shouldExclude = $false
-        foreach ($excludeDir in $excludeDirs) {
-            if ($relativePath -like "*\$excludeDir\*" -or $relativePath.StartsWith("$excludeDir\")) {
-                $shouldExclude = $true
-                break
-            }
+function Get-VersionFromPyProject {
+    param([string]$ProjectRoot)
+
+    $pyprojectPath = Join-Path $ProjectRoot "pyproject.toml"
+    if (-not (Test-Path $pyprojectPath)) {
+        return ""
+    }
+
+    $match = Select-String -Path $pyprojectPath -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+    if ($match) {
+        return $match.Matches[0].Groups[1].Value
+    }
+
+    return ""
+}
+
+function Resolve-DeployVersion {
+    if (-not [string]::IsNullOrWhiteSpace($Version)) {
+        return $Version.Trim()
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($SourcePath)) {
+        $projectVersion = Get-VersionFromPyProject -ProjectRoot $SourcePath
+        if ($projectVersion) {
+            return $projectVersion
         }
-        
-        if ($shouldExclude) {
+    }
+
+    throw "Informe -Version explicitamente ou forneça uma fonte contendo pyproject.toml."
+}
+
+function Get-ReleaseDir {
+    param([string]$ResolvedVersion)
+    return (Join-Path $ReleasesDir "v$ResolvedVersion")
+}
+
+function Get-CurrentReleasePath {
+    if (-not (Test-Path $CurrentLink)) {
+        return $null
+    }
+
+    try {
+        $item = Get-Item -Path $CurrentLink -Force
+        return $item.Target
+    } catch {
+        return $null
+    }
+}
+
+function Get-CurrentReleaseVersion {
+    $currentPath = Get-CurrentReleasePath
+    if (-not $currentPath) {
+        return $null
+    }
+
+    return (Split-Path -Leaf $currentPath).TrimStart("v")
+}
+
+function Backup-Database {
+    if ($SkipBackup) {
+        Write-Warning "Backup ignorado por parâmetro."
+        return $null
+    }
+
+    Write-Step "Criando backup do banco"
+
+    $dbPath = Join-Path $SharedDir "db\banco.db"
+    if (-not (Test-Path $dbPath)) {
+        Write-Warning "Banco não encontrado em $dbPath. Seguindo sem backup."
+        return $null
+    }
+
+    $backupDir = Join-Path $SharedDir "backups"
+    if (-not (Test-Path $backupDir)) {
+        New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+    }
+
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $backupPath = Join-Path $backupDir "banco-pre-deploy-$timestamp.db"
+    Copy-Item -Path $dbPath -Destination $backupPath -Force
+    Write-Success "Backup criado: $backupPath"
+    return $backupPath
+}
+
+function Stop-ApiService {
+    $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if (-not $service) {
+        Write-Warning "Serviço $ServiceName não encontrado."
+        return
+    }
+
+    if ($service.Status -eq "Stopped") {
+        Write-Info "Serviço $ServiceName já está parado."
+        return
+    }
+
+    Write-Step "Parando serviço"
+    Stop-Service -Name $ServiceName -Force
+    $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
+    Write-Success "Serviço parado."
+}
+
+function Start-ApiService {
+    Write-Step "Iniciando serviço"
+    Start-Service -Name $ServiceName
+    $service = Get-Service -Name $ServiceName -ErrorAction Stop
+    $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
+    Write-Success "Serviço iniciado."
+}
+
+function Expand-ReleaseArchive {
+    param(
+        [string]$ZipPath,
+        [string]$TargetPath
+    )
+
+    Write-Step "Extraindo release ZIP"
+    if (-not (Test-Path $ZipPath)) {
+        throw "Release ZIP não encontrada: $ZipPath"
+    }
+
+    if (Test-Path $TargetPath) {
+        Remove-Item -Path $TargetPath -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $TargetPath -Force | Out-Null
+
+    Expand-Archive -Path $ZipPath -DestinationPath $TargetPath -Force
+
+    $entries = @(Get-ChildItem -Path $TargetPath -Force)
+    if ($entries.Count -eq 1 -and $entries[0].PSIsContainer) {
+        $nested = $entries[0].FullName
+        Get-ChildItem -Path $nested -Force | ForEach-Object {
+            Move-Item -Path $_.FullName -Destination $TargetPath -Force
+        }
+        Remove-Item -Path $nested -Recurse -Force
+    }
+
+    Write-Success "Release extraída em $TargetPath"
+}
+
+function Copy-ReleaseFiles {
+    param(
+        [string]$ProjectRoot,
+        [string]$TargetPath
+    )
+
+    Write-Step "Copiando arquivos do projeto"
+
+    if (-not (Test-Path (Join-Path $ProjectRoot "main.py"))) {
+        throw "main.py não encontrado em $ProjectRoot"
+    }
+
+    if (Test-Path $TargetPath) {
+        Remove-Item -Path $TargetPath -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $TargetPath -Force | Out-Null
+
+    $excludeDirs = @("db", "media", "logs", "backups", "venv", "__pycache__", ".git", "releases", "shared", ".venv", "dist")
+    $excludeFiles = @("*.pyc", "*.pyo", "*.db", "*.db-shm", "*.db-wal", ".env")
+
+    Get-ChildItem -Path $ProjectRoot -Recurse -Force | ForEach-Object {
+        $relativePath = $_.FullName.Substring($ProjectRoot.Length).TrimStart("\")
+        if ([string]::IsNullOrWhiteSpace($relativePath)) {
             return
         }
-        
-        # Pular arquivos excluídos
+
+        foreach ($excludeDir in $excludeDirs) {
+            if ($relativePath.StartsWith("$excludeDir\") -or $relativePath -like "*\$excludeDir\*") {
+                return
+            }
+        }
+
         foreach ($excludePattern in $excludeFiles) {
             if ($_.Name -like $excludePattern) {
                 return
             }
         }
-        
+
+        $destination = Join-Path $TargetPath $relativePath
         if ($_.PSIsContainer) {
-            if (-not (Test-Path $targetItem)) {
-                New-Item -ItemType Directory -Path $targetItem -Force | Out-Null
+            if (-not (Test-Path $destination)) {
+                New-Item -ItemType Directory -Path $destination -Force | Out-Null
             }
-        } else {
-            Copy-Item -Path $_.FullName -Destination $targetItem -Force
+            return
         }
+
+        $parent = Split-Path -Path $destination -Parent
+        if (-not (Test-Path $parent)) {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        }
+        Copy-Item -Path $_.FullName -Destination $destination -Force
     }
-    
-    Write-Success "Arquivos copiados com sucesso"
+
+    Write-Success "Arquivos copiados para $TargetPath"
 }
 
-# Criar arquivo .env para a release
-function New-ReleaseEnvFile {
+function New-ReleaseVenv {
     param([string]$ReleasePath)
-    
-    Write-Info "Criando arquivo .env para release v$Version..."
-    
-    $envPath = Join-Path $ReleasePath ".env"
-    $dbPath = Join-Path $SharedDir "db\banco.db"
-    $mediaPath = Join-Path $SharedDir "media"
-    $logPath = Join-Path $SharedDir "logs"
-    
-    $envContent = @"
-# Configurações de Diretórios Compartilhados
-API_ROOT=$ApiRoot
-DATABASE_URL=sqlite:///$($dbPath.Replace('\', '/'))
-MEDIA_ROOT=$mediaPath
-LOG_DIR=$logPath
 
-# Configurações da API
-ENVIRONMENT=production
-VERSION=$Version
-PORT=$Port
-
-# Configurações de Segurança
-# IMPORTANTE: Gere uma SECRET_KEY única para produção!
-# SECRET_KEY=$(New-Guid)
-SECRET_KEY=change-me-$(New-Guid)
-"@
-    
-    Set-Content -Path $envPath -Value $envContent -Encoding UTF8
-    Write-Success "Arquivo .env criado: $envPath"
+    Write-Step "Criando venv da release"
+    & $PythonPath -m venv (Join-Path $ReleasePath "venv")
+    Write-Success "venv criada em $(Join-Path $ReleasePath 'venv')"
 }
 
-# Criar/atualizar link simbólico "current"
+function Install-ReleaseDependencies {
+    param([string]$ReleasePath)
+
+    Write-Step "Instalando dependências"
+    $pythonPath = Join-Path $ReleasePath "venv\Scripts\python.exe"
+
+    Push-Location $ReleasePath
+    try {
+        & $pythonPath -m pip install --upgrade pip
+        if (Test-Path (Join-Path $ReleasePath "requirements.txt")) {
+            & $pythonPath -m pip install -r requirements.txt
+        } elseif (Test-Path (Join-Path $ReleasePath "pyproject.toml")) {
+            & $pythonPath -m pip install .
+        } else {
+            throw "Nenhum arquivo de dependências encontrado na release."
+        }
+    } finally {
+        Pop-Location
+    }
+
+    Write-Success "Dependências instaladas."
+}
+
+function Set-EnvValue {
+    param(
+        [string]$FilePath,
+        [string]$Key,
+        [string]$Value
+    )
+
+    $escapedKey = [regex]::Escape($Key)
+    $line = "$Key=$Value"
+
+    if (-not (Test-Path $FilePath)) {
+        Set-Content -Path $FilePath -Value $line -Encoding UTF8
+        return
+    }
+
+    $content = Get-Content -Path $FilePath -Raw -Encoding UTF8
+    if ($content -match "(?m)^$escapedKey=") {
+        $updated = [regex]::Replace($content, "(?m)^$escapedKey=.*$", $line)
+    } else {
+        $separator = if ($content.EndsWith("`n") -or [string]::IsNullOrEmpty($content)) { "" } else { "`r`n" }
+        $updated = "$content$separator$line`r`n"
+    }
+    Set-Content -Path $FilePath -Value $updated -Encoding UTF8
+}
+
+function Initialize-ReleaseEnv {
+    param(
+        [string]$ReleasePath,
+        [string]$ResolvedVersion
+    )
+
+    Write-Step "Preparando .env da release"
+
+    $releaseEnvPath = Join-Path $ReleasePath ".env"
+    $sharedEnvPath = Join-Path $SharedDir ".env"
+
+    if (Test-Path $sharedEnvPath) {
+        Copy-Item -Path $sharedEnvPath -Destination $releaseEnvPath -Force
+        Write-Info "Baseado em $sharedEnvPath"
+    } elseif (-not (Test-Path $releaseEnvPath)) {
+        New-Item -ItemType File -Path $releaseEnvPath -Force | Out-Null
+    }
+
+    $databaseUrl = "sqlite:///$((Join-Path $SharedDir 'db\banco.db').Replace('\', '/'))"
+    $mediaRoot = (Join-Path $SharedDir "media")
+    $logDir = (Join-Path $SharedDir "logs")
+
+    Set-EnvValue -FilePath $releaseEnvPath -Key "API_ROOT" -Value $ApiRoot
+    Set-EnvValue -FilePath $releaseEnvPath -Key "DATABASE_URL" -Value $databaseUrl
+    Set-EnvValue -FilePath $releaseEnvPath -Key "MEDIA_ROOT" -Value $mediaRoot
+    Set-EnvValue -FilePath $releaseEnvPath -Key "LOG_DIR" -Value $logDir
+    Set-EnvValue -FilePath $releaseEnvPath -Key "ENVIRONMENT" -Value "production"
+    Set-EnvValue -FilePath $releaseEnvPath -Key "VERSION" -Value $ResolvedVersion
+    Set-EnvValue -FilePath $releaseEnvPath -Key "PORT" -Value $Port
+
+    Write-Success ".env pronto em $releaseEnvPath"
+}
+
+function Invoke-ReleaseMigrations {
+    param([string]$ReleasePath)
+
+    if ($SkipMigrations) {
+        Write-Warning "Migrations ignoradas por parâmetro."
+        return
+    }
+
+    Write-Step "Executando migrations"
+    $pythonPath = Join-Path $ReleasePath "venv\Scripts\python.exe"
+    Push-Location $ReleasePath
+    try {
+        & $pythonPath database\run_migrations.py
+        if ($LASTEXITCODE -ne 0) {
+            throw "Falha ao executar migrations."
+        }
+    } finally {
+        Pop-Location
+    }
+
+    Write-Success "Migrations concluídas."
+}
+
 function Update-CurrentLink {
     param([string]$TargetPath)
-    
-    Write-Info "Atualizando link simbólico 'current'..."
-    
+
+    Write-Step "Atualizando link current"
+
     if (Test-Path $CurrentLink) {
-        # Remover link existente
-        if ((Get-Item $CurrentLink).LinkType -eq "SymbolicLink") {
-            Remove-Item -Path $CurrentLink -Force
-        } else {
-            Write-Warning "Arquivo 'current' existe mas não é um link simbólico. Removendo..."
-            Remove-Item -Path $CurrentLink -Recurse -Force
-        }
+        Remove-Item -Path $CurrentLink -Recurse -Force
     }
-    
-    # Criar novo link simbólico
+
     New-Item -ItemType SymbolicLink -Path $CurrentLink -Target $TargetPath | Out-Null
-    Write-Success "Link simbólico 'current' atualizado: $CurrentLink -> $TargetPath"
+    Write-Success "current -> $TargetPath"
 }
 
-# Instalar/atualizar serviço Windows via NSSM
-function Install-Service {
-    param([string]$ReleasePath, [string]$ServiceName, [int]$Port)
-    
-    if (-not (Test-Administrator)) {
-        Write-Error "Elevação de privilégios necessária para instalar serviço"
-        Write-Info "Execute o script como Administrador"
-        return $false
-    }
-    
-    Write-Info "Instalando/atualizando serviço Windows '$ServiceName'..."
-    
-    # Verificar NSSM
-    $nssmPath = Get-Command nssm.exe -ErrorAction SilentlyContinue
-    if (-not $nssmPath) {
-        Write-Error "NSSM não encontrado. Instale NSSM primeiro."
-        Write-Info "Download: https://nssm.cc/download"
-        return $false
-    }
-    
-    $nssmExe = $nssmPath.Source
-    $venvPath = Join-Path $ReleasePath "venv"
-    $pythonPath = Join-Path $venvPath "Scripts\python.exe"
-    $mainPath = Join-Path $ReleasePath "main.py"
-    $appDir = $ReleasePath
-    
-    # Configurar variáveis de ambiente
-    $envVars = @(
-        "API_ROOT=$ApiRoot",
-        "PYTHONPATH=$appDir",
-        "PORT=$Port"
-    )
-    
-    # Verificar se serviço já existe
-    $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if ($service) {
-        Write-Info "Serviço '$ServiceName' já existe. Parando..."
-        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-    }
-    
-    # Instalar/atualizar serviço
-    & $nssmExe install $ServiceName $pythonPath "-m uvicorn main:app --host 0.0.0.0 --port $Port" 2>&1 | Out-Null
-    & $nssmExe set $ServiceName AppDirectory $appDir 2>&1 | Out-Null
-    
-    # Configurar variáveis de ambiente
-    foreach ($envVar in $envVars) {
-        $key, $value = $envVar.Split('=', 2)
-        & $nssmExe set $ServiceName AppEnvironmentExtra "$key=$value" 2>&1 | Out-Null
-    }
-    
-    # Configurações adicionais do NSSM
-    & $nssmExe set $ServiceName DisplayName "SGP API v$Version" 2>&1 | Out-Null
-    & $nssmExe set $ServiceName Description "API Sistema de Gestão de Produção - Versão $Version" 2>&1 | Out-Null
-    & $nssmExe set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
-    
-    # Diretórios de log
+function Install-OrUpdateService {
+    Assert-Administrator
+    $nssmExe = Test-NSSM
+
+    Write-Step "Configurando serviço Windows"
+
+    $serviceExists = $null -ne (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)
+    $currentPython = Join-Path $CurrentLink "venv\Scripts\python.exe"
     $stdoutLog = Join-Path $SharedDir "logs\service_stdout.log"
     $stderrLog = Join-Path $SharedDir "logs\service_stderr.log"
-    & $nssmExe set $ServiceName AppStdout $stdoutLog 2>&1 | Out-Null
-    & $nssmExe set $ServiceName AppStderr $stderrLog 2>&1 | Out-Null
-    & $nssmExe set $ServiceName AppStdoutCreationDisposition 4 2>&1 | Out-Null
-    & $nssmExe set $ServiceName AppStderrCreationDisposition 4 2>&1 | Out-Null
-    
-    Write-Success "Serviço '$ServiceName' instalado/atualizado com sucesso"
-    
-    # Iniciar serviço
-    Write-Info "Iniciando serviço '$ServiceName'..."
-    Start-Service -Name $ServiceName
-    Start-Sleep -Seconds 3
-    
-    $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if ($service -and $service.Status -eq "Running") {
-        Write-Success "Serviço '$ServiceName' iniciado com sucesso"
-        return $true
+    $envBlock = @(
+        "API_ROOT=$ApiRoot",
+        "PYTHONPATH=$CurrentLink",
+        "PORT=$Port"
+    ) -join "`n"
+
+    if (-not $serviceExists) {
+        & $nssmExe install $ServiceName $currentPython "-m uvicorn main:app --host 0.0.0.0 --port $Port" | Out-Null
     } else {
-        Write-Error "Falha ao iniciar serviço '$ServiceName'"
-        Write-Info "Verifique os logs em: $stdoutLog e $stderrLog"
-        return $false
+        & $nssmExe set $ServiceName Application $currentPython | Out-Null
+        & $nssmExe set $ServiceName AppParameters "-m uvicorn main:app --host 0.0.0.0 --port $Port" | Out-Null
     }
+
+    & $nssmExe set $ServiceName AppDirectory $CurrentLink | Out-Null
+    & $nssmExe set $ServiceName DisplayName "SGP API" | Out-Null
+    & $nssmExe set $ServiceName Description "API Sistema de Gestão de Produção" | Out-Null
+    & $nssmExe set $ServiceName Start SERVICE_AUTO_START | Out-Null
+    & $nssmExe set $ServiceName AppEnvironmentExtra $envBlock | Out-Null
+    & $nssmExe set $ServiceName AppStdout $stdoutLog | Out-Null
+    & $nssmExe set $ServiceName AppStderr $stderrLog | Out-Null
+    & $nssmExe set $ServiceName AppStdoutCreationDisposition 4 | Out-Null
+    & $nssmExe set $ServiceName AppStderrCreationDisposition 4 | Out-Null
+
+    Write-Success "Serviço configurado: $ServiceName"
 }
 
-# Deploy de nova release
-function Deploy-Release {
-    param([string]$SourcePath)
-    
-    Write-Info "Iniciando deploy da release v$Version..."
-    
-    # Inicializar estrutura
-    Initialize-SharedDirectories
-    
-    # Verificar uv
-    if (-not (Test-UV)) {
-        return $false
-    }
-    
-    # Criar diretório da release
-    if (Test-Path $ReleaseDir) {
-        Write-Warning "Release v$Version já existe. Removendo..."
-        Remove-Item -Path $ReleaseDir -Recurse -Force
-    }
-    New-Item -ItemType Directory -Path $ReleaseDir -Force | Out-Null
-    Write-Success "Diretório de release criado: $ReleaseDir"
-    
-    # Copiar arquivos
-    Copy-ReleaseFiles -SourcePath $SourcePath -TargetPath $ReleaseDir
-    
-    # Criar venv
-    $venvPath = New-ReleaseVenv -ReleasePath $ReleaseDir
-    
-    # Instalar dependências
-    Install-Dependencies -ReleasePath $ReleaseDir -VenvPath $venvPath
-    
-    # Criar .env
-    New-ReleaseEnvFile -ReleasePath $ReleaseDir
-    
-    # Atualizar link simbólico
-    Update-CurrentLink -TargetPath $ReleaseDir
-    
-    # Instalar serviço
-    $serviceInstalled = Install-Service -ReleasePath $ReleaseDir -ServiceName $ServiceName -Port $Port
-    
-    if ($serviceInstalled) {
-        Write-Success "✅ Deploy da release v$Version concluído com sucesso!"
-        Write-Info "Release ativa: $CurrentLink -> $ReleaseDir"
-        Write-Info "Diretórios compartilhados: $SharedDir"
-        return $true
-    } else {
-        Write-Error "Deploy concluído, mas falha ao iniciar serviço"
-        return $false
-    }
-}
-
-# Rollback para versão anterior
-function Rollback-Release {
-    param([string]$TargetVersion)
-    
-    Write-Info "Iniciando rollback para versão v$TargetVersion..."
-    
-    $targetReleaseDir = Join-Path $ReleasesDir "v$TargetVersion"
-    
-    if (-not (Test-Path $targetReleaseDir)) {
-        Write-Error "Release v$TargetVersion não encontrada: $targetReleaseDir"
-        return $false
-    }
-    
-    # Atualizar link simbólico
-    Update-CurrentLink -TargetPath $targetReleaseDir
-    
-    # Reiniciar serviço
-    Write-Info "Reiniciando serviço '$ServiceName'..."
-    Restart-Service -Name $ServiceName -Force
-    Start-Sleep -Seconds 3
-    
-    $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if ($service -and $service.Status -eq "Running") {
-        Write-Success "✅ Rollback para versão v$TargetVersion concluído com sucesso!"
-        Write-Info "Release ativa: $CurrentLink -> $targetReleaseDir"
-        return $true
-    } else {
-        Write-Error "Falha ao reiniciar serviço após rollback"
-        return $false
-    }
-}
-
-# Listar releases disponíveis
-function List-Releases {
-    Write-Info "Releases disponíveis:"
-    
-    if (-not (Test-Path $ReleasesDir)) {
-        Write-Warning "Diretório de releases não existe: $ReleasesDir"
+function Test-Healthcheck {
+    if ($SkipHealthcheck) {
+        Write-Warning "Healthcheck ignorado por parâmetro."
         return
     }
-    
-    $releases = Get-ChildItem -Path $ReleasesDir -Directory | Where-Object { $_.Name -like "v*" } | Sort-Object Name -Descending
-    
-    if ($releases.Count -eq 0) {
-        Write-Warning "Nenhuma release encontrada"
-        return
-    }
-    
-    # Determinar release ativa
-    $currentRelease = $null
-    if (Test-Path $CurrentLink) {
+
+    Write-Step "Validando healthcheck"
+    $lastError = $null
+
+    for ($attempt = 1; $attempt -le 10; $attempt++) {
         try {
-            $currentTarget = (Get-Item $CurrentLink).Target
-            $currentRelease = Split-Path -Leaf $currentTarget
+            $response = Invoke-WebRequest -Uri $HealthCheckUrl -UseBasicParsing -TimeoutSec 5
+            if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
+                Write-Success "Healthcheck OK em $HealthCheckUrl"
+                return
+            }
+            $lastError = "HTTP $($response.StatusCode)"
         } catch {
-            # Link pode estar quebrado
+            $lastError = $_
+        }
+        Start-Sleep -Seconds 2
+    }
+
+    throw "Healthcheck falhou em $HealthCheckUrl. Último erro: $lastError"
+}
+
+function Remove-ReleaseDirectory {
+    param([string]$ReleasePath)
+    if ($ReleasePath -and (Test-Path $ReleasePath)) {
+        Remove-Item -Path $ReleasePath -Recurse -Force
+    }
+}
+
+function Invoke-AutomaticRollback {
+    param(
+        [string]$PreviousReleasePath,
+        [string]$PreviousReleaseVersion
+    )
+
+    if (-not $PreviousReleasePath) {
+        Write-Warning "Sem release anterior para rollback automático."
+        return
+    }
+
+    Write-Step "Executando rollback automático"
+    Update-CurrentLink -TargetPath $PreviousReleasePath
+    Install-OrUpdateService
+    Start-ApiService
+    if (-not $SkipHealthcheck) {
+        Test-Healthcheck
+    }
+    Write-Warning "Rollback automático concluído para v$PreviousReleaseVersion."
+}
+
+function Deploy-Release {
+    Assert-Administrator
+    Initialize-SharedDirectories
+    Test-Python
+
+    if ([string]::IsNullOrWhiteSpace($SourcePath) -and [string]::IsNullOrWhiteSpace($ReleaseZip)) {
+        $script:SourcePath = (Get-Location).Path
+    }
+
+    $resolvedVersion = Resolve-DeployVersion
+    $releaseDir = Get-ReleaseDir -ResolvedVersion $resolvedVersion
+    $previousReleasePath = Get-CurrentReleasePath
+    $previousReleaseVersion = Get-CurrentReleaseVersion
+
+    if ((Test-Path $releaseDir) -and (-not $Force)) {
+        throw "A release v$resolvedVersion já existe em $releaseDir. Use -Force para sobrescrever."
+    }
+
+    Stop-ApiService
+    $backupPath = Backup-Database
+    if ($backupPath) {
+        Write-Info "Backup da execução: $backupPath"
+    }
+
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($ReleaseZip)) {
+            Expand-ReleaseArchive -ZipPath $ReleaseZip -TargetPath $releaseDir
+        } else {
+            Copy-ReleaseFiles -ProjectRoot $SourcePath -TargetPath $releaseDir
+        }
+
+        New-ReleaseVenv -ReleasePath $releaseDir
+        Install-ReleaseDependencies -ReleasePath $releaseDir
+        Initialize-ReleaseEnv -ReleasePath $releaseDir -ResolvedVersion $resolvedVersion
+        Invoke-ReleaseMigrations -ReleasePath $releaseDir
+        Update-CurrentLink -TargetPath $releaseDir
+        Install-OrUpdateService
+        Start-ApiService
+        Test-Healthcheck
+
+        Write-Host ""
+        Write-Success "Deploy concluído com sucesso."
+        Write-Info "Versão ativa: v$resolvedVersion"
+        Write-Info "current -> $releaseDir"
+    } catch {
+        Write-ErrorMessage $_
+        try {
+            Invoke-AutomaticRollback -PreviousReleasePath $previousReleasePath -PreviousReleaseVersion $previousReleaseVersion
+        } catch {
+            Write-ErrorMessage "Rollback automático falhou: $_"
+        }
+        throw
+    }
+}
+
+function Rollback-Release {
+    Assert-Administrator
+    if ([string]::IsNullOrWhiteSpace($RollbackVersion)) {
+        throw "Informe -RollbackVersion para rollback."
+    }
+
+    $targetReleasePath = Get-ReleaseDir -ResolvedVersion $RollbackVersion
+    if (-not (Test-Path $targetReleasePath)) {
+        throw "Release v$RollbackVersion não encontrada em $targetReleasePath"
+    }
+
+    Stop-ApiService
+    Update-CurrentLink -TargetPath $targetReleasePath
+    Install-OrUpdateService
+    Start-ApiService
+    Test-Healthcheck
+
+    Write-Success "Rollback concluído para v$RollbackVersion"
+}
+
+function List-Releases {
+    Write-Step "Releases disponíveis"
+
+    if (-not (Test-Path $ReleasesDir)) {
+        Write-Warning "Diretório de releases não existe."
+        return
+    }
+
+    $currentRelease = Get-CurrentReleaseVersion
+    $releases = Get-ChildItem -Path $ReleasesDir -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like "v*" } |
+        Sort-Object Name -Descending
+
+    if (-not $releases) {
+        Write-Warning "Nenhuma release encontrada."
+        return
+    }
+
+    foreach ($release in $releases) {
+        $version = $release.Name.TrimStart("v")
+        if ($version -eq $currentRelease) {
+            Write-Host "[ATIVA] v$version" -ForegroundColor Green
+        } else {
+            Write-Host "        v$version" -ForegroundColor Gray
         }
     }
-    
-    foreach ($release in $releases) {
-        $version = $release.Name
-        $isActive = ($version -eq $currentRelease)
-        $status = if ($isActive) { "[ATIVA]" } else { "[      ]" }
-        $color = if ($isActive) { "Green" } else { "Gray" }
-        
-        Write-Host "$status $version" -ForegroundColor $color
-    }
-    
-    if ($currentRelease) {
-        Write-Info "Release ativa: $currentRelease"
-    } else {
-        Write-Warning "Nenhuma release ativa (link 'current' não encontrado ou quebrado)"
-    }
 }
 
-# Mostrar status atual
 function Show-Status {
-    Write-Info "Status do sistema de releases:"
-    Write-Host ""
-    
-    Write-Host "📁 API Root: $ApiRoot" -ForegroundColor Cyan
-    Write-Host "📁 Releases: $ReleasesDir" -ForegroundColor Cyan
-    Write-Host "📁 Shared: $SharedDir" -ForegroundColor Cyan
-    Write-Host ""
-    
-    # Listar releases
-    List-Releases
-    
-    Write-Host ""
-    
-    # Status do serviço
+    Write-Step "Status do ambiente"
+    Write-Host "API Root: $ApiRoot"
+    Write-Host "Releases: $ReleasesDir"
+    Write-Host "Shared: $SharedDir"
+    Write-Host "Healthcheck: $HealthCheckUrl"
+
+    $currentRelease = Get-CurrentReleaseVersion
+    if ($currentRelease) {
+        Write-Host "Release ativa: v$currentRelease"
+    } else {
+        Write-Warning "Nenhuma release ativa."
+    }
+
     $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($service) {
-        $statusColor = if ($service.Status -eq "Running") { "Green" } else { "Red" }
-        Write-Host "🔧 Serviço '$ServiceName': " -NoNewline
-        Write-Host $service.Status -ForegroundColor $statusColor
+        Write-Host "Serviço $ServiceName: $($service.Status)"
     } else {
-        Write-Warning "Serviço '$ServiceName' não encontrado"
+        Write-Warning "Serviço $ServiceName não encontrado."
     }
+
+    List-Releases
 }
 
-# Main
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  API SGP - Deploy de Releases" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
 
 switch ($Action) {
-    "deploy" {
-        $sourcePath = (Get-Location).Path
-        if (-not (Test-Path (Join-Path $sourcePath "main.py"))) {
-            Write-Error "Arquivo main.py não encontrado no diretório atual: $sourcePath"
-            Write-Info "Execute o script a partir do diretório raiz da API"
-            exit 1
-        }
-        Deploy-Release -SourcePath $sourcePath
-    }
-    
-    "rollback" {
-        if ([string]::IsNullOrEmpty($RollbackVersion)) {
-            Write-Error "Parâmetro -RollbackVersion é obrigatório para rollback"
-            exit 1
-        }
-        Rollback-Release -TargetVersion $RollbackVersion
-    }
-    
-    "list" {
-        List-Releases
-    }
-    
-    "status" {
-        Show-Status
-    }
-    
-    default {
-        Write-Error "Ação inválida: $Action"
-        Write-Info "Ações válidas: deploy, rollback, list, status"
-        exit 1
-    }
+    "deploy" { Deploy-Release }
+    "rollback" { Rollback-Release }
+    "list" { List-Releases }
+    "status" { Show-Status }
 }
-
