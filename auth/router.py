@@ -153,6 +153,7 @@ async def login(
             "user_id": user.id,
             "username": user.username,
             "is_admin": bool(is_admin),
+            "setor": getattr(user, 'setor', None) or "geral",
             "session_token": access_token,
             "message": "Login realizado com sucesso"
         }
@@ -227,3 +228,54 @@ async def get_current_user(
     except Exception as e:
         logger.exception("Erro ao obter usuário atual")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro interno ao processar solicitação")
+
+
+@router.post("/auth/change-password")
+async def change_password(
+    request: auth_schema.ChangePasswordRequest,
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Permite que o usuário logado altere sua própria senha.
+    Requer senha atual e nova senha.
+    """
+    try:
+        if await _is_token_revoked(token, db):
+            raise HTTPException(status_code=401, detail="Token revogado")
+
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: int = payload.get("user_id")
+
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Token inválido")
+
+        user = await db.get(User, user_id)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="Usuário inativo ou inexistente")
+
+        # Validar senha atual
+        if not verify_password(request.current_password, user.password_hash):
+            raise HTTPException(status_code=400, detail="Senha atual incorreta")
+
+        # Validar nova senha
+        if len(request.new_password) < 4:
+            raise HTTPException(status_code=400, detail="Nova senha deve ter ao menos 4 caracteres")
+
+        # Atualizar senha
+        user.password_hash = get_password_hash(request.new_password)
+        user.password_plain = request.new_password
+        user.updated_at = datetime.now(timezone.utc)
+
+        db.add(user)
+        await db.commit()
+
+        return {"success": True, "message": "Senha alterada com sucesso"}
+
+    except HTTPException:
+        raise
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido ou expirado")
+    except Exception as e:
+        logger.exception("Erro ao alterar senha")
+        raise HTTPException(status_code=500, detail="Erro interno ao alterar senha")

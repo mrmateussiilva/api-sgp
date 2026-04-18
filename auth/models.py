@@ -48,7 +48,9 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     username: str = Field(unique=True, index=True)
     password_hash: str
+    password_plain: Optional[str] = Field(default=None, max_length=200)
     is_admin: bool = Field(default=False)
+    setor: Optional[str] = Field(default="geral", max_length=50)
     is_active: bool = Field(default=True)
     created_at: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc),
@@ -79,6 +81,7 @@ class UserCreate(SQLModel):
     username: str
     password: str
     is_admin: bool = False
+    setor: str = "geral"
 
 
 class UserResponse(SQLModel):
@@ -87,4 +90,6 @@ class UserResponse(SQLModel):
     username: str
     is_admin: bool
     is_active: bool
+    setor: Optional[str] = None
+    password_plain: Optional[str] = None
     created_at: Optional[datetime] = None

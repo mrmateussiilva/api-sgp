@@ -9,6 +9,8 @@ class UserRead(SQLModel):
     username: str
     is_admin: bool
     is_active: bool
+    setor: Optional[str] = None
+    password_plain: Optional[str] = None
     created_at: Optional[datetime] = None
 
 
@@ -17,6 +19,7 @@ class UserCreate(SQLModel):
     password: str
     is_admin: bool = False
     is_active: bool = True
+    setor: str = "geral"
 
 
 class UserUpdate(SQLModel):
@@ -24,3 +27,4 @@ class UserUpdate(SQLModel):
     password: Optional[str] = None
     is_admin: Optional[bool] = None
     is_active: Optional[bool] = None
+    setor: Optional[str] = None

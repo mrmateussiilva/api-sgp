@@ -25,6 +25,8 @@ def _to_read_model(user: User) -> UserRead:
         username=user.username,
         is_admin=bool(user.is_admin),
         is_active=bool(user.is_active),
+        setor=user.setor or "geral",
+        password_plain=user.password_plain,
         created_at=user.created_at,
     )
 
@@ -60,8 +62,10 @@ async def create_user(
     user = User(
         username=payload.username,
         password_hash=_hash_password(payload.password),
+        password_plain=payload.password,
         is_admin=payload.is_admin,
         is_active=payload.is_active,
+        setor=payload.setor or "geral",
         created_at=now,
         updated_at=now,
     )
@@ -101,12 +105,16 @@ async def update_user(
         if len(payload.password) < 8:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Senha deve ter ao menos 8 caracteres")
         user.password_hash = _hash_password(payload.password)
+        user.password_plain = payload.password
 
     if payload.is_admin is not None:
         user.is_admin = payload.is_admin
 
     if payload.is_active is not None:
         user.is_active = payload.is_active
+
+    if payload.setor is not None:
+        user.setor = payload.setor
 
     user.updated_at = datetime.now(timezone.utc)
 
