@@ -48,7 +48,7 @@ class Settings(BaseSettings):
         r"(null|tauri://.*|app://.*|capacitor://.*|https?://localhost(:\d+)?|"
         r"https?://127\.0\.0\.1(:\d+)?|https?://tauri\.localhost.*|https?://.*\.localhost.*|"
         r"https?://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?|https?://10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?|"
-        r"https://.*\.ngrok-free\.app|https://.*\.ngrok\.app)"
+        r"https://.*\.ngrok-free\.app|https://.*\.ngrok\.app|https?://.*\.vercel\.app)"
     )
 
     # Configurações de Segurança

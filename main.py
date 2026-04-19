@@ -256,17 +256,19 @@ async def orders_websocket(websocket: WebSocket):
             data = await websocket.receive_text()
             
             # Responder a pings do heartbeat
-            if data == '{"type":"ping"}' or data == "ping":
+            if "ping" in data:
                 try:
                     await websocket.send_text('{"type":"pong"}')
                 except Exception:
-                    # Se não conseguir enviar pong, a conexão está morta
                     break
                 continue
             
             # Tentar processar como JSON para broadcast
             try:
                 message = json.loads(data)
+                
+                # Log de toda mensagem recebida para depuração
+                print(f"[WebSocket] Mensagem recebida de user_id={user_id}: {message.get('type')} (broadcast={message.get('broadcast')})")
                 
                 # Se for mensagem de broadcast, enviar para todos os outros clientes
                 if message.get("broadcast") and message.get("type") not in ("ping", "pong"):
