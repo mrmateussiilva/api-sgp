@@ -154,7 +154,12 @@ async def get_itens_designer(
                     observacao=item.observacao,
                     status_pedido=pedido.status.value if hasattr(pedido.status, "value") else str(pedido.status),
                     prioridade=pedido.prioridade.value if hasattr(pedido.prioridade, "value") else str(pedido.prioridade),
-                    status_arte="liberado" if getattr(item, "legenda_imagem", None) == "LIBERADO" else "aguardando",
+                    # Retrocompatibilidade: verifica campo dedicado status_arte primeiro,
+                    # depois fallback para legenda_imagem == "LIBERADO" (dados antigos)
+                    status_arte=(
+                        getattr(item, "status_arte", None)
+                        or ("liberado" if getattr(item, "legenda_imagem", None) == "LIBERADO" else "aguardando")
+                    ),
                     tecido=item.tecido,
                     composicao_tecidos=item.composicao_tecidos,
                     acabamento=item.acabamento.model_dump() if item.acabamento else None,
@@ -215,8 +220,8 @@ async def patch_status_arte(
             detail=f"Item {item_id} não encontrado em nenhum pedido ativo.",
         )
 
-    # Atualizar APENAS a legenda_imagem — nunca toca em outros campos
-    item.legenda_imagem = body.legenda_imagem
+    # Atualizar APENAS o campo dedicado status_arte — nunca toca em legenda_imagem
+    item.status_arte = body.status_arte
 
     # Reserializar a lista de items com o item atualizado
     items = json_string_to_items(pedido.items)
@@ -228,7 +233,7 @@ async def patch_status_arte(
     await session.refresh(pedido)
 
     # Retornar o item atualizado no formato do painel
-    novo_status_arte = "liberado" if body.legenda_imagem == "LIBERADO" else "aguardando"
+    novo_status_arte = body.status_arte
     return DesignerArteItemResponse(
         item_id=item_id,
         order_id=pedido.id,
@@ -336,7 +341,12 @@ async def post_comentario_item(
         observacao=item.observacao,
         status_pedido=pedido.status.value if hasattr(pedido.status, "value") else str(pedido.status),
         prioridade=pedido.prioridade.value if hasattr(pedido.prioridade, "value") else str(pedido.prioridade),
-        status_arte="liberado" if getattr(item, "legenda_imagem", None) == "LIBERADO" else "aguardando",
+        # Retrocompatibilidade: verifica campo dedicado status_arte primeiro,
+        # depois fallback para legenda_imagem == "LIBERADO" (dados antigos)
+        status_arte=(
+            getattr(item, "status_arte", None)
+            or ("liberado" if getattr(item, "legenda_imagem", None) == "LIBERADO" else "aguardando")
+        ),
         tecido=item.tecido,
         composicao_tecidos=item.composicao_tecidos,
         acabamento=item.acabamento.model_dump() if item.acabamento else None,

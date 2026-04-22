@@ -96,9 +96,9 @@ class DesignerArteItemResponse(BaseModel):
 
 class PatchStatusArteRequest(BaseModel):
     """Request para atualizar APENAS o status de arte de um item.
-    Nunca sobrescreve outros campos do item (quantidade, preço, vendedor, etc.).
+    Usa campo dedicado status_arte — nunca toca em legenda_imagem.
     """
-    legenda_imagem: Literal["LIBERADO", "AGUARDANDO"]
+    status_arte: Literal["liberado", "aguardando"]
 
 
 class PostComentarioRequest(BaseModel):
