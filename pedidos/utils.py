@@ -146,10 +146,19 @@ def agrupar_pedidos(
 
 
 async def find_order_by_item_id(session, item_id: int):
-    # Buscar todos os pedidos (ou filtrar por status se performance for critica)
-    # Como nao temos tabela de itens, precisamos iterar.
-    # TODO: Em producao idealmente teriamos tabela de itens ou indice no JSON.
-    stmt = select(Pedido)
+    # Otimização 1: Na grande maioria dos casos, item_id = pedido.id * 1000 + i
+    possible_order_id = item_id // 1000
+    if possible_order_id > 0:
+        pedido = await session.get(Pedido, possible_order_id)
+        if pedido and pedido.items:
+            items = json_string_to_items(pedido.items)
+            for i, item in enumerate(items):
+                if item.id == item_id or (item.id is None and (possible_order_id * 1000 + i) == item_id):
+                    return pedido, i, item
+
+    # Otimização 2: Busca por texto (LIKE) para evitar carregar a tabela inteira e lotar a memória RAM
+    # Procuramos o ID como texto para reduzir drásticamente a busca antes de decodificar o JSON.
+    stmt = select(Pedido).where(Pedido.items.like(f'%{item_id}%')).order_by(Pedido.id.desc())
     result = await session.exec(stmt)
     pedidos = result.all()
 
@@ -161,9 +170,6 @@ async def find_order_by_item_id(session, item_id: int):
         for i, item in enumerate(items):
             if item.id == item_id:
                 return pedido, i, item
-            if item.id is None and pedido.id is not None:
-                fallback_id = pedido.id * 1000 + i
-                if fallback_id == item_id:
-                    return pedido, i, item
 
+    # Fallback final (Extremamente raro ou falha)
     return None, None, None

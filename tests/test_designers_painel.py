@@ -133,7 +133,7 @@ async def test_patch_status_arte_liberado(client, admin_headers):
     # Fazer o PATCH
     patch_resp = await client.patch(
         f"/designers/itens/{item_id}/status-arte",
-        json={"legenda_imagem": "LIBERADO"},
+        json={"status_arte": "liberado"},
         headers=admin_headers,
     )
     assert patch_resp.status_code == 200
@@ -167,7 +167,7 @@ async def test_patch_status_arte_aguardando(client, admin_headers):
     # Reverter para aguardando
     patch_resp = await client.patch(
         f"/designers/itens/{item_id}/status-arte",
-        json={"legenda_imagem": "AGUARDANDO"},
+        json={"status_arte": "aguardando"},
         headers=admin_headers,
     )
     assert patch_resp.status_code == 200
@@ -179,7 +179,7 @@ async def test_patch_status_arte_item_invalido(client, admin_headers):
     """item_id inexistente deve retornar 404."""
     response = await client.patch(
         "/designers/itens/999999/status-arte",
-        json={"legenda_imagem": "LIBERADO"},
+        json={"status_arte": "liberado"},
         headers=admin_headers,
     )
     assert response.status_code == 404
