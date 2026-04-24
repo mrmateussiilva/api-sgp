@@ -1014,6 +1014,7 @@ async def listar_pedidos(
     data_inicio: Optional[str] = Query(default=None),
     data_fim: Optional[str] = Query(default=None),
     date_mode: str = Query("entrada", description="Modo de data: 'entrada', 'entrega' ou 'qualquer'"),
+    is_pronto: Optional[bool] = Query(default=None, description="Filtra por status de pronto (true/false)"),
 ):
     """
     Lista todos os pedidos com seus items convertidos de volta para objetos. 
@@ -1028,6 +1029,9 @@ async def listar_pedidos(
         filters = select(Pedido)
         if status:
             filters = filters.where(Pedido.status == status)
+
+        if is_pronto is not None:
+            filters = filters.where(Pedido.pronto == is_pronto)
 
         if cliente:
             # Normalizar cliente para busca (remover acentos e caracteres especiais)
@@ -1215,6 +1219,11 @@ async def listar_pedidos(
                 params.append(f"%{cliente.strip().lower()}%")
                 param_idx += 1
             
+            if is_pronto is not None:
+                where_clauses.append(f"pronto = ${param_idx}")
+                params.append(1 if is_pronto else 0)
+                param_idx += 1
+            
             # Aplicar filtro de data conforme date_mode
             date_mode_normalized = (date_mode or "entrega").lower().strip()
             
@@ -1375,6 +1384,7 @@ async def contar_total_pedidos(
     data_inicio: Optional[str] = Query(default=None),
     data_fim: Optional[str] = Query(default=None),
     date_mode: str = Query("entrada", description="Modo de data: 'entrada', 'entrega' ou 'qualquer'"),
+    is_pronto: Optional[bool] = Query(default=None, description="Filtra por status de pronto (true/false)"),
 ):
     """
     Retorna o total de pedidos registrados no banco de dados com suporte a filtros.
@@ -1384,6 +1394,9 @@ async def contar_total_pedidos(
         
         if status:
             filters = filters.where(Pedido.status == status)
+
+        if is_pronto is not None:
+            filters = filters.where(Pedido.pronto == is_pronto)
 
         if cliente:
             import unicodedata
