@@ -230,7 +230,7 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro interno ao processar solicitação")
 
 
-@router.post("/auth/change-password")
+@router.post("/change-password")
 async def change_password(
     request: auth_schema.ChangePasswordRequest,
     token: str = Depends(oauth2_scheme),

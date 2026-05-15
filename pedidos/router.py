@@ -27,7 +27,7 @@ from .schema import (
 from .realtime import schedule_broadcast
 from datetime import datetime, timedelta, timezone
 import orjson
-from auth.security import decode_access_token
+from auth.security import decode_access_token, get_user_from_token
 from auth.models import User
 from fastapi.security import OAuth2PasswordBearer
 from config import settings
@@ -123,6 +123,16 @@ async def get_current_user_admin(
         return False
 
     return bool(user.is_admin)
+
+
+async def get_current_user(
+    token: Optional[str] = Depends(oauth2_scheme),
+    session: AsyncSession = Depends(get_session)
+) -> Optional[User]:
+    """Retorna o usuário logado se o token for válido."""
+    if not token:
+        return None
+    return await get_user_from_token(token, session)
 
 
 async def require_admin(
@@ -1015,6 +1025,7 @@ async def listar_pedidos(
     data_fim: Optional[str] = Query(default=None),
     date_mode: str = Query("entrada", description="Modo de data: 'entrada', 'entrega' ou 'qualquer'"),
     is_pronto: Optional[bool] = Query(default=None, description="Filtra por status de pronto (true/false)"),
+    current_user: Optional[User] = Depends(get_current_user),
 ):
     """
     Lista todos os pedidos com seus items convertidos de volta para objetos. 
@@ -1103,7 +1114,28 @@ async def listar_pedidos(
                     next_day = (datetime.strptime(data_fim, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
                     filters = filters.where(Pedido.data_entrega < next_day)
         
-        filters = filters.order_by(Pedido.data_criacao.desc()).offset(skip)
+        # Aplicar ordenação baseada no perfil do usuário
+        if current_user:
+            if current_user.is_admin:
+                # Admin: Financeiro pendente primeiro -> Prioridade Alta -> ID decrescente
+                filters = filters.order_by(
+                    Pedido.financeiro.asc(),
+                    case((Pedido.prioridade == 'ALTA', 0), else_=1).asc(),
+                    Pedido.id.desc()
+                )
+            elif current_user.setor == 'impressao':
+                # Impressão: Sublimação pendente primeiro -> Prioridade Alta -> ID decrescente
+                filters = filters.order_by(
+                    Pedido.sublimacao.asc(),
+                    case((Pedido.prioridade == 'ALTA', 0), else_=1).asc(),
+                    Pedido.id.desc()
+                )
+            else:
+                filters = filters.order_by(Pedido.data_criacao.desc())
+        else:
+            filters = filters.order_by(Pedido.data_criacao.desc())
+
+        filters = filters.offset(skip)
         if limit is not None:
             filters = filters.limit(limit)
         
@@ -1295,7 +1327,12 @@ async def listar_pedidos(
                     data_criacao, ultima_atualizacao
                 FROM pedidos
                 WHERE {where_sql}
-                ORDER BY data_criacao DESC
+                ORDER BY 
+                    {
+                        "financeiro ASC, CASE WHEN prioridade = 'ALTA' THEN 0 ELSE 1 END ASC, id DESC" if current_user and current_user.is_admin else
+                        "sublimacao ASC, CASE WHEN prioridade = 'ALTA' THEN 0 ELSE 1 END ASC, id DESC" if current_user and current_user.setor == 'impressao' else
+                        "data_criacao DESC"
+                    }
                 LIMIT {limit} OFFSET {skip}
             """,
             )

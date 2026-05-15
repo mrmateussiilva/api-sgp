@@ -83,7 +83,7 @@ wheels = [
 
 [[package]]
 name = "api-sistemas-fichas"
-version = "1.0.20"
+version = "1.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },

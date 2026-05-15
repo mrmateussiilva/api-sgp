@@ -313,9 +313,8 @@ def _ensure_group(groups: Dict[str, Dict[str, Any]], key: str, label: str, use_s
             "label": label,
             "rows": [],
             "subgroups": {} if use_subgroups else None,
-            "subtotal": {"valor_frete": 0.0, "valor_servico": 0.0, "_desconto": 0.0},
+            "subtotal": {"valor_frete": 0.0, "valor_servico": 0.0},
             "_pedido_ids": set(),
-            "_desconto_ids": set(),
             "_items_count": 0,
         }
     return groups[key]
@@ -328,9 +327,8 @@ def _ensure_subgroup(group: Dict[str, Any], key: str, label: str) -> Dict[str, A
             "key": key,
             "label": label,
             "rows": [],
-            "subtotal": {"valor_frete": 0.0, "valor_servico": 0.0, "_desconto": 0.0},
+            "subtotal": {"valor_frete": 0.0, "valor_servico": 0.0},
             "_pedido_ids": set(),
-            "_desconto_ids": set(),
         }
     return subgroups[key]
 
@@ -743,9 +741,8 @@ async def relatorio_fechamentos(
     pedidos = result.all()
 
     groups: Dict[str, Dict[str, Any]] = {}
-    total = {"valor_frete": 0.0, "valor_servico": 0.0, "_desconto": 0.0}
+    total = {"valor_frete": 0.0, "valor_servico": 0.0}
     total_frete_ids: set[int] = set()
-    total_desconto_ids: set[int] = set()
 
     for pedido in pedidos:
         pedido_id = int(pedido.id or 0)
@@ -779,9 +776,6 @@ async def relatorio_fechamentos(
         total_servico_pedido = sum(item_values)
         frete_total = parse_currency(pedido.valor_frete) or 0.0
         pedido_valor_total = parse_currency(pedido.valor_total) or 0.0
-        desconto = 0.0
-        if pedido_valor_total:
-            desconto = max(0.0, (total_servico_pedido + frete_total) - pedido_valor_total)
 
         if frete_mode == "proporcional" and total_servico_pedido > 0:
             frete_items = [frete_total * (value / total_servico_pedido) for value in item_values]
@@ -790,16 +784,31 @@ async def relatorio_fechamentos(
         else:
             frete_items = [frete_total for _ in item_values]
 
-        total["valor_servico"] += total_servico_pedido
+        adjustment = 0.0
+        if pedido_valor_total > 0.01:
+            expected_servico_total = round(pedido_valor_total - frete_total, 2)
+            adjustment = round(expected_servico_total - total_servico_pedido, 2)
+
+        if abs(adjustment) > 0.01:
+            class PseudoItem:
+                pass
+            pseudo_item = PseudoItem()
+            pseudo_item.descricao = "Acréscimo Comercial (Ajuste de Pedido)" if adjustment > 0 else "Desconto Comercial"
+            pseudo_item.designer = getattr(items[0], "designer", "Sem designer") if items else "Sem designer"
+            pseudo_item.vendedor = getattr(items[0], "vendedor", "Sem vendedor") if items else "Sem vendedor"
+            pseudo_item.tipo_producao = "Ajuste"
+            
+            items.append(pseudo_item)
+            item_values.append(adjustment)
+            frete_items.append(0.0)
+
+        total["valor_servico"] += sum(item_values)
         if frete_mode == "proporcional":
             total["valor_frete"] += sum(frete_items)
         else:
             if pedido_id not in total_frete_ids:
                 total["valor_frete"] += frete_total
                 total_frete_ids.add(pedido_id)
-        if desconto > 0 and pedido_id not in total_desconto_ids:
-            total["_desconto"] += desconto
-            total_desconto_ids.add(pedido_id)
 
         is_analitico = report_type.startswith("analitico_")
 
@@ -818,9 +827,6 @@ async def relatorio_fechamentos(
                     if pedido_id not in subgroup["_pedido_ids"]:
                         subgroup["subtotal"]["valor_frete"] += frete_total
                         subgroup["_pedido_ids"].add(pedido_id)
-                if desconto > 0 and pedido_id not in subgroup["_desconto_ids"]:
-                    subgroup["subtotal"]["_desconto"] += desconto
-                    subgroup["_desconto_ids"].add(pedido_id)
 
                 group["subtotal"]["valor_servico"] += item_value
                 if frete_mode == "proporcional":
@@ -829,9 +835,6 @@ async def relatorio_fechamentos(
                     if pedido_id not in group["_pedido_ids"]:
                         group["subtotal"]["valor_frete"] += frete_total
                         group["_pedido_ids"].add(pedido_id)
-                if desconto > 0 and pedido_id not in group["_desconto_ids"]:
-                    group["subtotal"]["_desconto"] += desconto
-                    group["_desconto_ids"].add(pedido_id)
             else:
                 group_key, group_label = _get_sintetico_group(
                     report_type,
@@ -848,18 +851,11 @@ async def relatorio_fechamentos(
                     if pedido_id not in group["_pedido_ids"]:
                         group["subtotal"]["valor_frete"] += frete_total
                 group["_pedido_ids"].add(pedido_id)
-                if desconto > 0 and pedido_id not in group["_desconto_ids"]:
-                    group["subtotal"]["_desconto"] += desconto
-                    group["_desconto_ids"].add(pedido_id)
 
     def _finalize_subtotal(data: Dict[str, Any]) -> Dict[str, Any]:
         frete = round(data.get("valor_frete", 0.0), 2)
         servico = round(data.get("valor_servico", 0.0), 2)
         subtotal = {"valor_frete": frete, "valor_servico": servico}
-        desconto_value = round(data.get("_desconto", 0.0), 2)
-        if desconto_value > 0:
-            subtotal["desconto"] = desconto_value
-            subtotal["valor_liquido"] = round(frete + servico - desconto_value, 2)
         return subtotal
 
     group_list: List[Dict[str, Any]] = list(groups.values())
@@ -872,7 +868,6 @@ async def relatorio_fechamentos(
             for subgroup in subgroup_list:
                 subgroup["subtotal"] = _finalize_subtotal(subgroup["subtotal"])
                 subgroup.pop("_pedido_ids", None)
-                subgroup.pop("_desconto_ids", None)
             group["subgroups"] = subgroup_list
         else:
             pedidos_count = len(group.get("_pedido_ids", []))
@@ -889,7 +884,6 @@ async def relatorio_fechamentos(
 
         group["subtotal"] = _finalize_subtotal(group["subtotal"])
         group.pop("_pedido_ids", None)
-        group.pop("_desconto_ids", None)
         group.pop("_items_count", None)
 
     total_final = _finalize_subtotal(total)
