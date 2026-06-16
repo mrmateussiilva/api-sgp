@@ -789,18 +789,10 @@ async def relatorio_fechamentos(
             expected_servico_total = round(pedido_valor_total - frete_total, 2)
             adjustment = round(expected_servico_total - total_servico_pedido, 2)
 
-        if abs(adjustment) > 0.01:
-            class PseudoItem:
-                pass
-            pseudo_item = PseudoItem()
-            pseudo_item.descricao = "Acréscimo Comercial (Ajuste de Pedido)" if adjustment > 0 else "Desconto Comercial"
-            pseudo_item.designer = getattr(items[0], "designer", "Sem designer") if items else "Sem designer"
-            pseudo_item.vendedor = getattr(items[0], "vendedor", "Sem vendedor") if items else "Sem vendedor"
-            pseudo_item.tipo_producao = "Ajuste"
-            
-            items.append(pseudo_item)
-            item_values.append(adjustment)
-            frete_items.append(0.0)
+        # Absorver ajuste silenciosamente no último item real, sem criar item fantasma.
+        # Isso evita que um grupo "Tipo: Ajuste" apareça no relatório do cliente.
+        if abs(adjustment) > 0.01 and item_values:
+            item_values[-1] = round(item_values[-1] + adjustment, 2)
 
         total["valor_servico"] += sum(item_values)
         if frete_mode == "proporcional":
