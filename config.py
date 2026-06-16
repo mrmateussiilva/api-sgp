@@ -43,12 +43,17 @@ class Settings(BaseSettings):
         "http://tauri.localhost",
         "tauri://localhost",
         "null",
+        # Domínios de produção web / PWA
+        "https://sgp.finderbit.com.br",
+        "https://www.corrigeja.com.br",
+        "https://corrigeja.com.br",
     ]
     BACKEND_CORS_ALLOW_ORIGIN_REGEX: Optional[str] = (
         r"(null|tauri://.*|app://.*|capacitor://.*|https?://localhost(:\d+)?|"
         r"https?://127\.0\.0\.1(:\d+)?|https?://tauri\.localhost.*|https?://.*\.localhost.*|"
         r"https?://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?|https?://10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?|"
-        r"https://.*\.ngrok-free\.app|https://.*\.ngrok\.app|https?://.*\.vercel\.app)"
+        r"https://.*\.ngrok-free\.app|https://.*\.ngrok\.app|https?://.*\.vercel\.app|"
+        r"https?://.*\.finderbit\.com\.br|https?://.*\.corrigeja\.com\.br|https?://corrigeja\.com\.br)"
     )
 
     # Configurações de Segurança
