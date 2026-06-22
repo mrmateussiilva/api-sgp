@@ -105,6 +105,7 @@ from maquinas.print_log_router import router as print_logs_router
 from sync.router import router as sync_router
 from safira.router import router as safira_router
 from sync.worker import sync_outbox_worker
+from automacao.router import router as automacao_router
 
 
 # Importar modelos para garantir que as tabelas sejam criadas
@@ -173,6 +174,7 @@ app.include_router(maquinas_router, prefix=settings.API_V1_STR)
 app.include_router(print_logs_router, prefix=settings.API_V1_STR)
 app.include_router(sync_router, prefix=settings.API_V1_STR)
 app.include_router(safira_router, prefix=settings.API_V1_STR + "/safira")
+app.include_router(automacao_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")
