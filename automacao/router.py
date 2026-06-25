@@ -1,8 +1,16 @@
 from typing import Optional, List, Dict, Set, Any
 from fastapi import APIRouter, Depends, Query, HTTPException
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from base import get_session
+from pedidos.schema import Pedido, PedidoResponse
+from pedidos.router import (
+    json_string_to_items,
+    populate_items_with_image_paths,
+    pedido_to_response_dict,
+    normalize_pedido_status,
+)
 from relatorios.fechamentos import (
     get_filtered_orders,
     calculate_order_value,
@@ -413,3 +421,48 @@ async def obter_alertas_producao(
         return AlertasProducaoResponse(items=alertas)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao processar alertas de produção: {e}")
+
+
+@router.get("/pedido/{numero}", response_model=PedidoResponse)
+async def obter_pedido_por_numero(numero: str, session: AsyncSession = Depends(get_session)):
+    """
+    Obtém um pedido específico pelo número do pedido (numero) com seus items e caminhos de imagens.
+    Projetado especificamente para uso em automações.
+    Aceita tanto o formato simples (ex: 12345) quanto o formato com zeros à esquerda (ex: 0000012345).
+    """
+    try:
+        # Tentar buscar pelo número exato fornecido
+        stmt = select(Pedido).where(Pedido.numero == numero)
+        result = await session.exec(stmt)
+        pedido = result.first()
+        
+        # Se não encontrar, tentar formatar com zeros à esquerda (padrão de 10 dígitos do sistema)
+        if not pedido and numero.isdigit():
+            padded_numero = numero.zfill(10)
+            stmt = select(Pedido).where(Pedido.numero == padded_numero)
+            result = await session.exec(stmt)
+            pedido = result.first()
+            
+        # Se ainda assim não encontrar, tentar buscar como ID se for numérico
+        if not pedido and numero.isdigit():
+            pedido = await session.get(Pedido, int(numero))
+
+        if not pedido:
+            raise HTTPException(status_code=404, detail="Pedido não encontrado")
+        
+        # Normalizar status ANTES de processar
+        normalize_pedido_status(pedido)
+        
+        # Converter items de JSON string para objetos
+        items = json_string_to_items(pedido.items)
+        await populate_items_with_image_paths(session, pedido.id, items)
+
+        pedido_data = pedido_to_response_dict(pedido, items)
+        return PedidoResponse(**pedido_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logging.getLogger("api").exception("Erro ao obter pedido para automação pelo número %s", numero)
+        raise HTTPException(status_code=500, detail=f"Erro interno ao obter pedido: {e}")

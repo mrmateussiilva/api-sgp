@@ -234,3 +234,51 @@ async def test_automacao_producao_alertas(client: AsyncClient, clean_db, test_se
         if item["tipo_alerta"] == "estagnado":
             assert item["horas_estagnado"] >= 70
 
+
+@pytest.mark.asyncio
+async def test_automacao_obter_pedido_por_numero(client: AsyncClient, clean_db):
+    """Testa a obtenção de pedido por número e por ID de forma flexível no módulo de automação."""
+    # 1. Criar um pedido de teste
+    pedido_data = {
+        "numero": "0000012345",
+        "cliente": "Cliente Teste Automação",
+        "data_entrada": "2026-06-15",
+        "data_entrega": "2026-06-18",
+        "items": [
+            {
+                "tipo_producao": "painel",
+                "descricao": "Painel de Teste",
+                "largura": "1.5",
+                "altura": "1.5",
+                "quantidade_paineis": "1",
+                "valor_unitario": "80.00"
+            }
+        ]
+    }
+    
+    resp_create = await client.post("/pedidos/", json=pedido_data)
+    assert resp_create.status_code == 200
+    created_order = resp_create.json()
+    pedido_id = created_order["id"]
+    
+    # 2. Testar busca pelo número exato com zeros à esquerda (0000012345)
+    resp_num_exato = await client.get("/automacao/pedido/0000012345")
+    assert resp_num_exato.status_code == 200
+    assert resp_num_exato.json()["id"] == pedido_id
+    assert resp_num_exato.json()["cliente"] == "Cliente Teste Automação"
+    
+    # 3. Testar busca pelo número simplificado sem zeros (12345)
+    resp_num_simplificado = await client.get("/automacao/pedido/12345")
+    assert resp_num_simplificado.status_code == 200
+    assert resp_num_simplificado.json()["id"] == pedido_id
+    
+    # 4. Testar busca pelo ID primário (pedido_id)
+    resp_id = await client.get(f"/automacao/pedido/{pedido_id}")
+    assert resp_id.status_code == 200
+    assert resp_id.json()["numero"] == "0000012345"
+    
+    # 5. Testar busca por número de pedido inexistente
+    resp_not_found = await client.get("/automacao/pedido/999999")
+    assert resp_not_found.status_code == 404
+
+
