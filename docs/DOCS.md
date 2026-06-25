@@ -115,6 +115,22 @@ Endpoint dedicado para relatorio de envios, sempre filtrando por **data de entre
   - Retorna pedidos filtrados por data de entrega.
   - Parametros: `skip`, `limit`, `status`, `cliente`, `data_inicio`, `data_fim`.
 
+## Automação (`automacao/router.py`)
+
+Módulo de endpoints otimizados e agregados voltados para integrações com scripts e sistemas de automação externos.
+
+- **GET `/automacao/pedido/{numero}`**:
+  - Busca um pedido de forma flexível utilizando o número do pedido (ex: `12345` ou `0000012345`) ou o seu ID interno (como fallback).
+  - Retorna o pedido completo (`PedidoResponse`), convertendo a lista de itens e resolvendo de forma assíncrona as URLs corretas de suas imagens de visualização.
+- **GET `/automacao/pedidos/metragem`**:
+  - Lista todos os pedidos no período contendo o cálculo consolidado de metragem quadrada total (`m²`) dos itens do pedido.
+- **GET `/automacao/producao/estatisticas`**:
+  - Consolida a quantidade de pedidos, total de itens, metragem e faturamento agregados por tipo de produção (painel, totem, etc.).
+- **GET `/automacao/producao/tecidos`**:
+  - Consolida quantidade de pedidos, itens e metragem total consumida agrupada por tipo de tecido.
+- **GET `/automacao/producao/alertas`**:
+  - Retorna alertas ativos de produção, como pedidos atrasados, urgentes pendentes e pedidos estagnados (em produção há mais de 48 horas).
+
 ## Fluxo em Tempo Real e Notificações
 
 - **WebSocket `/ws/orders`**:

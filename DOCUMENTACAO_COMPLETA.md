@@ -320,6 +320,14 @@ api-sgp/
 - **Pagamentos:** Formas de pagamento
 - **Envios:** Formas de envio
 
+### 9. **Automação**
+- **Responsabilidade:** Fornecer rotas otimizadas e consultas flexíveis para scripts e integrações de automação externa.
+- **Funcionalidades:**
+  - Consulta flexível de pedidos e itens por número do pedido.
+  - Consolidação de metragem quadrada total por pedido.
+  - Estatísticas de produção agregadas por tipo e tecido.
+  - Alertas de produção ativa (atrasados, estagnados, etc.).
+
 ---
 
 ## 📊 Modelos de Dados
@@ -510,6 +518,16 @@ class Prioridade(str, Enum):
 | GET | `/pedidos/por-tipo-producao` | Agrupamento por tipo | ✅ |
 | GET | `/pedidos/tendencia` | Análise de tendências | ✅ |
 | GET | `/pedidos/valor-total` | Valor total por período | ✅ |
+
+### **Automação** (`/automacao`)
+
+| Método | Endpoint | Descrição | Auth |
+|--------|----------|-----------|------|
+| GET | `/automacao/pedido/{numero}` | Obter pedido flexivelmente por número/ID com imagens | ✅ |
+| GET | `/automacao/pedidos/metragem` | Listar pedidos com metragem total consolidada | ✅ |
+| GET | `/automacao/producao/estatisticas` | Estatísticas de produção por tipo | ✅ |
+| GET | `/automacao/producao/tecidos` | Estatísticas de tecidos consumidos | ✅ |
+| GET | `/automacao/producao/alertas` | Listar alertas de produção ativa | ✅ |
 
 ### **Outros Módulos**
 
